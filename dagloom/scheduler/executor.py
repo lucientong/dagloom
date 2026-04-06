@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import inspect as _inspect
 import logging
-import time
 from typing import Any
 
 from dagloom.core.context import ExecutionContext, NodeStatus
@@ -144,9 +143,7 @@ class AsyncExecutor:
                 else:
                     preds = self.pipeline.predecessors(node_name)
                     if len(preds) == 1:
-                        coro = self._run_callable(
-                            node_obj, ctx.get_output(preds[0])
-                        )
+                        coro = self._run_callable(node_obj, ctx.get_output(preds[0]))
                     else:
                         pred_outputs = {p: ctx.get_output(p) for p in preds}
                         coro = self._run_callable(node_obj, pred_outputs)
@@ -167,10 +164,9 @@ class AsyncExecutor:
                 )
                 return
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 error_msg = (
-                    f"Timed out after {node_obj.timeout}s "
-                    f"(attempt {attempt}/{max_attempts})"
+                    f"Timed out after {node_obj.timeout}s (attempt {attempt}/{max_attempts})"
                 )
                 logger.warning("Node %s: %s", node_name, error_msg)
                 info.mark_failed(error_msg)
@@ -186,9 +182,7 @@ class AsyncExecutor:
                     self.retry_base_delay * (_DEFAULT_RETRY_MULTIPLIER ** (attempt - 1)),
                     self.retry_max_delay,
                 )
-                logger.debug(
-                    "Node %s retrying in %.1fs ...", node_name, delay
-                )
+                logger.debug("Node %s retrying in %.1fs ...", node_name, delay)
                 await asyncio.sleep(delay)
 
     @staticmethod

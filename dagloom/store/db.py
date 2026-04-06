@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -125,10 +125,11 @@ class Database:
         source_file: str | None = None,
     ) -> None:
         """Insert or update a pipeline definition."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.conn.execute(
             """
-            INSERT INTO pipelines (id, name, description, node_names, edges, source_file, created_at, updated_at)
+            INSERT INTO pipelines (id, name, description, node_names,
+                edges, source_file, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,
@@ -153,9 +154,7 @@ class Database:
 
     async def get_pipeline(self, pipeline_id: str) -> dict[str, Any] | None:
         """Fetch a pipeline by ID."""
-        cursor = await self.conn.execute(
-            "SELECT * FROM pipelines WHERE id = ?", (pipeline_id,)
-        )
+        cursor = await self.conn.execute("SELECT * FROM pipelines WHERE id = ?", (pipeline_id,))
         row = await cursor.fetchone()
         if row is None:
             return None
@@ -163,9 +162,7 @@ class Database:
 
     async def list_pipelines(self) -> list[dict[str, Any]]:
         """List all pipelines."""
-        cursor = await self.conn.execute(
-            "SELECT * FROM pipelines ORDER BY updated_at DESC"
-        )
+        cursor = await self.conn.execute("SELECT * FROM pipelines ORDER BY updated_at DESC")
         rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 
@@ -184,7 +181,8 @@ class Database:
         """Insert or update an execution record."""
         await self.conn.execute(
             """
-            INSERT INTO executions (id, pipeline_id, status, started_at, finished_at, error_message, metadata)
+            INSERT INTO executions (id, pipeline_id, status, started_at,
+                finished_at, error_message, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 status=excluded.status,
@@ -207,9 +205,7 @@ class Database:
 
     async def get_execution(self, execution_id: str) -> dict[str, Any] | None:
         """Fetch an execution record by ID."""
-        cursor = await self.conn.execute(
-            "SELECT * FROM executions WHERE id = ?", (execution_id,)
-        )
+        cursor = await self.conn.execute("SELECT * FROM executions WHERE id = ?", (execution_id,))
         row = await cursor.fetchone()
         return self._row_to_dict(row) if row else None
 
@@ -259,9 +255,7 @@ class Database:
         )
         await self.conn.commit()
 
-    async def get_node_executions(
-        self, execution_id: str
-    ) -> list[dict[str, Any]]:
+    async def get_node_executions(self, execution_id: str) -> list[dict[str, Any]]:
         """Fetch all node executions for a given execution run."""
         cursor = await self.conn.execute(
             "SELECT * FROM node_executions WHERE execution_id = ?",
@@ -290,7 +284,7 @@ class Database:
         size_bytes: int = 0,
     ) -> None:
         """Insert or update a cache entry."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.conn.execute(
             """
             INSERT INTO cache_entries
@@ -306,9 +300,7 @@ class Database:
         )
         await self.conn.commit()
 
-    async def get_cache_entry(
-        self, node_id: str, input_hash: str
-    ) -> dict[str, Any] | None:
+    async def get_cache_entry(self, node_id: str, input_hash: str) -> dict[str, Any] | None:
         """Look up a cache entry by node ID and input hash."""
         cursor = await self.conn.execute(
             "SELECT * FROM cache_entries WHERE node_id = ? AND input_hash = ?",

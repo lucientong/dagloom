@@ -11,13 +11,11 @@ Usage::
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from dagloom.server.api import router as api_router
 from dagloom.server.api import set_state, ws_manager
@@ -72,9 +70,7 @@ def create_app() -> FastAPI:
             while True:
                 # Keep connection alive; handle incoming messages if needed.
                 data = await websocket.receive_text()
-                logger.debug(
-                    "WS message from %s: %s", pipeline_id, data
-                )
+                logger.debug("WS message from %s: %s", pipeline_id, data)
         except WebSocketDisconnect:
             ws_manager.disconnect(websocket, pipeline_id)
 

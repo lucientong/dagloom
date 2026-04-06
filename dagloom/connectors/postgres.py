@@ -4,7 +4,10 @@ Requires the ``connectors`` extra: ``pip install dagloom[connectors]``
 
 Example::
 
-    config = ConnectionConfig(host="localhost", port=5432, database="mydb", username="user", password="pass")
+    config = ConnectionConfig(
+        host="localhost", port=5432, database="mydb",
+        username="user", password="pass"
+    )
     async with PostgresConnector(config) as pg:
         rows = await pg.execute("SELECT * FROM users WHERE active = $1", True)
 """
@@ -54,7 +57,12 @@ class PostgresConnector(BaseConnector):
             timeout=self.config.timeout,
         )
         self._connected = True
-        logger.info("PostgreSQL connected: %s:%d/%s", self.config.host, self.config.port, self.config.database)
+        logger.info(
+            "PostgreSQL connected: %s:%d/%s",
+            self.config.host,
+            self.config.port,
+            self.config.database,
+        )
 
     async def disconnect(self) -> None:
         """Close the connection pool."""

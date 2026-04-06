@@ -22,13 +22,11 @@ Example::
 
 from __future__ import annotations
 
-import copy
 import logging
 from typing import Any
 
-from dagloom.core.context import ExecutionContext, NodeStatus
+from dagloom.core.context import ExecutionContext
 from dagloom.core.dag import (
-    CycleError,
     build_digraph,
     find_leaf_nodes,
     find_root_nodes,
@@ -283,11 +281,7 @@ class Pipeline:
         return "\n".join(lines)
 
     def __repr__(self) -> str:
-        return (
-            f"Pipeline(name={self.name!r}, "
-            f"nodes={len(self._nodes)}, "
-            f"edges={len(self._edges)})"
-        )
+        return f"Pipeline(name={self.name!r}, nodes={len(self._nodes)}, edges={len(self._edges)})"
 
     def __len__(self) -> int:
         return len(self._nodes)

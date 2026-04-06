@@ -7,10 +7,10 @@ checking status, and interacting with the DAG structure.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from dagloom.server.ws import ConnectionManager
@@ -94,12 +94,8 @@ async def list_pipelines() -> list[dict[str, Any]]:
             "id": p["id"],
             "name": p["name"],
             "description": p.get("description", ""),
-            "node_count": len(
-                __import__("json").loads(p.get("node_names", "[]"))
-            ),
-            "edge_count": len(
-                __import__("json").loads(p.get("edges", "[]"))
-            ),
+            "node_count": len(__import__("json").loads(p.get("node_names", "[]"))),
+            "edge_count": len(__import__("json").loads(p.get("edges", "[]"))),
             "updated_at": p.get("updated_at", ""),
         }
         for p in pipelines
@@ -118,7 +114,7 @@ async def run_pipeline(pipeline_id: str, body: RunRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Pipeline {pipeline_id!r} not found.")
 
     execution_id = uuid.uuid4().hex[:12]
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     await db.save_execution(
         execution_id=execution_id,
@@ -141,9 +137,7 @@ async def run_pipeline(pipeline_id: str, body: RunRequest) -> dict[str, Any]:
     }
 
 
-@router.get(
-    "/pipelines/{pipeline_id}/status", response_model=ExecutionResponse
-)
+@router.get("/pipelines/{pipeline_id}/status", response_model=ExecutionResponse)
 async def get_pipeline_status(pipeline_id: str) -> dict[str, Any]:
     """Get the latest execution status for a pipeline."""
     db = get_state("db")
@@ -172,9 +166,7 @@ async def get_pipeline_status(pipeline_id: str) -> dict[str, Any]:
     }
 
 
-@router.post(
-    "/pipelines/{pipeline_id}/resume", response_model=ExecutionResponse
-)
+@router.post("/pipelines/{pipeline_id}/resume", response_model=ExecutionResponse)
 async def resume_pipeline(pipeline_id: str) -> dict[str, Any]:
     """Resume a failed pipeline execution from checkpoint."""
     db = get_state("db")
@@ -196,7 +188,7 @@ async def resume_pipeline(pipeline_id: str) -> dict[str, Any]:
 
     record = dict(row)
     execution_id = record["id"]
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # Update the execution status to running (resume).
     await db.save_execution(

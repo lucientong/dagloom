@@ -6,14 +6,14 @@ records, node execution states, and cache entries.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class NodeStatus(str, Enum):
+class NodeStatus(StrEnum):
     """Status of a node execution."""
 
     PENDING = "pending"
@@ -32,8 +32,8 @@ class PipelineModel(BaseModel):
     node_names: list[str] = Field(default_factory=list)
     edges: list[tuple[str, str]] = Field(default_factory=list)
     source_file: str | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ExecutionModel(BaseModel):
@@ -71,5 +71,5 @@ class CacheEntryModel(BaseModel):
     output_path: str
     serialization_format: str = "pickle"  # pickle | json | parquet
     size_bytes: int = 0
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = None

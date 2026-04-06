@@ -82,4 +82,4 @@ line-length = 99
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "ANN", "B", "SIM"]
-ignore = ["ANN101", "ANN102"]
+ignore = ["ANN401"]  # Allow Any for generic/dynamic typing scenarios

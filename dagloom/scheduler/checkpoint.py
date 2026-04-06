@@ -13,8 +13,7 @@ Example::
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from dagloom.store.db import Database
 
@@ -58,7 +57,7 @@ class CheckpointManager:
             error_message: Error description if failed.
             retry_count: Number of retries attempted.
         """
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         started_at = now if status == "running" else None
         finished_at = now if status in ("success", "failed") else None
 
@@ -74,9 +73,7 @@ class CheckpointManager:
             started_at=started_at,
             finished_at=finished_at,
         )
-        logger.debug(
-            "Checkpoint: %s/%s status=%s", execution_id, node_id, status
-        )
+        logger.debug("Checkpoint: %s/%s status=%s", execution_id, node_id, status)
 
     async def get_completed_nodes(self, execution_id: str) -> set[str]:
         """Return the set of successfully completed node IDs.
@@ -89,9 +86,7 @@ class CheckpointManager:
         """
         return await self.db.get_completed_nodes(execution_id)
 
-    async def get_node_states(
-        self, execution_id: str
-    ) -> dict[str, str]:
+    async def get_node_states(self, execution_id: str) -> dict[str, str]:
         """Return a mapping of node_id -> status for all nodes.
 
         Args:
@@ -129,7 +124,7 @@ class CheckpointManager:
             execution_id: Unique execution ID.
             pipeline_id: The pipeline being executed.
         """
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.db.save_execution(
             execution_id=execution_id,
             pipeline_id=pipeline_id,
@@ -152,7 +147,7 @@ class CheckpointManager:
             success: Whether the execution succeeded.
             error_message: Error description if failed.
         """
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.db.save_execution(
             execution_id=execution_id,
             pipeline_id=pipeline_id,

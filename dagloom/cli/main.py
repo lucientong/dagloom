@@ -85,7 +85,7 @@ def run(file: str, pipeline_var: str, inputs: tuple[str, ...]) -> None:
     click.echo(f"Running pipeline from {file} ...")
     try:
         result = pipeline.run(**kwargs)
-        click.echo(f"✅ Pipeline completed successfully.")
+        click.echo("✅ Pipeline completed successfully.")
         click.echo(f"Result: {result}")
     except Exception as exc:
         click.echo(f"❌ Pipeline failed: {exc}", err=True)
@@ -148,9 +148,7 @@ def version() -> None:
 # -- Helpers ------------------------------------------------------------------
 
 
-def _load_pipeline_from_file(
-    file_path: str, var_name: str
-) -> Any | None:
+def _load_pipeline_from_file(file_path: str, var_name: str) -> Any | None:
     """Dynamically load a Pipeline object from a Python file.
 
     Args:

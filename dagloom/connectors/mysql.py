@@ -4,7 +4,10 @@ Requires the ``connectors`` extra: ``pip install dagloom[connectors]``
 
 Example::
 
-    config = ConnectionConfig(host="localhost", port=3306, database="mydb", username="root", password="pass")
+    config = ConnectionConfig(
+        host="localhost", port=3306, database="mydb",
+        username="root", password="pass"
+    )
     async with MySQLConnector(config) as mysql:
         rows = await mysql.execute("SELECT * FROM users WHERE active = %s", (True,))
 """
@@ -53,7 +56,9 @@ class MySQLConnector(BaseConnector):
             connect_timeout=int(self.config.timeout),
         )
         self._connected = True
-        logger.info("MySQL connected: %s:%d/%s", self.config.host, self.config.port, self.config.database)
+        logger.info(
+            "MySQL connected: %s:%d/%s", self.config.host, self.config.port, self.config.database
+        )
 
     async def disconnect(self) -> None:
         """Close the connection pool."""
@@ -69,9 +74,8 @@ class MySQLConnector(BaseConnector):
         if not self._pool:
             return False
         try:
-            async with self._pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute("SELECT 1")
+            async with self._pool.acquire() as conn, conn.cursor() as cur:
+                await cur.execute("SELECT 1")
             return True
         except Exception:
             return False
@@ -88,7 +92,6 @@ class MySQLConnector(BaseConnector):
         """
         if not self._pool:
             raise ConnectionError("Not connected. Call connect() first.")
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(query, args or None)
-                return await cur.fetchall()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(query, args or None)
+            return await cur.fetchall()

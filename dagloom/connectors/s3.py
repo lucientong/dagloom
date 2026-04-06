@@ -4,7 +4,14 @@ Requires the ``connectors`` extra: ``pip install dagloom[connectors]``
 
 Example::
 
-    config = ConnectionConfig(host="s3.amazonaws.com", extra={"region": "us-east-1", "aws_access_key_id": "...", "aws_secret_access_key": "..."})
+    config = ConnectionConfig(
+        host="s3.amazonaws.com",
+        extra={
+            "region": "us-east-1",
+            "aws_access_key_id": "...",
+            "aws_secret_access_key": "..."
+        }
+    )
     async with S3Connector(config) as s3:
         data = await s3.execute("get", bucket="my-bucket", key="data/file.csv")
 """
@@ -44,7 +51,10 @@ class S3Connector(BaseConnector):
 
         self._session = get_session()
         extra = self.config.extra
-        endpoint_url = f"https://{self.config.host}" if self.config.host != "localhost" else f"http://{self.config.host}:{self.config.port or 9000}"
+        if self.config.host != "localhost":
+            endpoint_url = f"https://{self.config.host}"
+        else:
+            endpoint_url = f"http://{self.config.host}:{self.config.port or 9000}"
 
         self._client = self._session.create_client(
             "s3",

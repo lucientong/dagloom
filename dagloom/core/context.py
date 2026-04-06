@@ -9,11 +9,11 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class NodeStatus(str, Enum):
+class NodeStatus(StrEnum):
     """Status of a node execution."""
 
     PENDING = "pending"
@@ -160,11 +160,7 @@ class ExecutionContext:
     @property
     def failed_nodes(self) -> list[str]:
         """Return names of all nodes that failed."""
-        return [
-            name
-            for name, info in self.node_info.items()
-            if info.status == NodeStatus.FAILED
-        ]
+        return [name for name, info in self.node_info.items() if info.status == NodeStatus.FAILED]
 
     def summary(self) -> dict[str, Any]:
         """Return a summary dict suitable for logging or serialization."""

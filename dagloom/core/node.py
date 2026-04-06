@@ -17,7 +17,11 @@ Example::
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, TypeVar, overload
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar, overload
+
+if TYPE_CHECKING:
+    from dagloom.core.pipeline import Pipeline
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -123,13 +127,6 @@ class Node:
         """Return the function's return type annotation."""
         sig = inspect.signature(self.fn)
         return sig.return_annotation
-
-
-# -- Avoid circular import at module level --
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from dagloom.core.pipeline import Pipeline
 
 
 # ---------------------------------------------------------------------------
