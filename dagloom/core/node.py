@@ -1,0 +1,207 @@
+"""Node definition and @node decorator.
+
+A Node wraps a plain Python function, adding metadata for retry, caching,
+and timeout. Nodes are the atomic units of a Dagloom pipeline.
+
+Example::
+
+    @node
+    def greet(name: str) -> str:
+        return f"Hello, {name}!"
+
+    @node(retry=3, cache=True, timeout=30.0)
+    def fetch_data(url: str) -> pd.DataFrame:
+        return pd.read_csv(url)
+"""
+
+from __future__ import annotations
+
+import inspect
+from typing import Any, Callable, TypeVar, overload
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+class Node:
+    """A decorated Python function that serves as a DAG node.
+
+    Attributes:
+        name: Unique identifier derived from the wrapped function name.
+        fn: The original callable.
+        retry: Number of retries on failure (0 means no retry).
+        cache: Whether to cache the node output based on input hash.
+        timeout: Maximum execution time in seconds (None means no limit).
+        description: Human-readable description from the function docstring.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        fn: Callable[..., Any],
+        *,
+        retry: int = 0,
+        cache: bool = False,
+        timeout: float | None = None,
+        description: str = "",
+    ) -> None:
+        self.name = name
+        self.fn = fn
+        self.retry = retry
+        self.cache = cache
+        self.timeout = timeout
+        self.description = description
+        self._metadata: dict[str, Any] = {}
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Execute the wrapped function directly."""
+        return self.fn(*args, **kwargs)
+
+    def __rshift__(self, other: Node | Pipeline) -> Pipeline:
+        """Build a pipeline: ``node_a >> node_b`` or ``node_a >> pipeline``.
+
+        Args:
+            other: The next Node or an existing Pipeline to append to.
+
+        Returns:
+            A new Pipeline containing the connection.
+
+        Raises:
+            TypeError: If *other* is not a Node or Pipeline.
+        """
+        from dagloom.core.pipeline import Pipeline
+
+        if isinstance(other, Node):
+            pipe = Pipeline()
+            pipe.add_node(self)
+            pipe.add_node(other)
+            pipe.add_edge(self.name, other.name)
+            pipe._tail_nodes = [other.name]
+            return pipe
+
+        if isinstance(other, Pipeline):
+            pipe = other.copy()
+            pipe.add_node(self)
+            # Connect self to all root nodes (nodes with no incoming edges).
+            for root in pipe.root_nodes():
+                pipe.add_edge(self.name, root)
+            return pipe
+
+        return NotImplemented
+
+    def __rrshift__(self, other: Any) -> Pipeline:
+        """Support ``other >> self`` when *other* does not implement __rshift__."""
+        if isinstance(other, Node):
+            return other.__rshift__(self)
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Node):
+            return NotImplemented
+        return self.name == other.name
+
+    def __repr__(self) -> str:
+        parts = [f"Node({self.name!r}"]
+        if self.retry:
+            parts.append(f"retry={self.retry}")
+        if self.cache:
+            parts.append(f"cache={self.cache}")
+        if self.timeout is not None:
+            parts.append(f"timeout={self.timeout}")
+        return ", ".join(parts) + ")"
+
+    @property
+    def input_params(self) -> dict[str, inspect.Parameter]:
+        """Return the function's input parameters (excluding 'return')."""
+        sig = inspect.signature(self.fn)
+        return dict(sig.parameters)
+
+    @property
+    def return_annotation(self) -> Any:
+        """Return the function's return type annotation."""
+        sig = inspect.signature(self.fn)
+        return sig.return_annotation
+
+
+# -- Avoid circular import at module level --
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dagloom.core.pipeline import Pipeline
+
+
+# ---------------------------------------------------------------------------
+# @node decorator — supports both @node and @node(retry=3, cache=True)
+# ---------------------------------------------------------------------------
+
+
+@overload
+def node(fn: F, /) -> Node: ...
+
+
+@overload
+def node(
+    *,
+    retry: int = 0,
+    cache: bool = False,
+    timeout: float | None = None,
+    name: str | None = None,
+) -> Callable[[F], Node]: ...
+
+
+def node(
+    fn: F | None = None,
+    /,
+    *,
+    retry: int = 0,
+    cache: bool = False,
+    timeout: float | None = None,
+    name: str | None = None,
+) -> Node | Callable[[F], Node]:
+    """Decorator that turns a plain Python function into a pipeline Node.
+
+    Can be used with or without arguments::
+
+        @node
+        def step_a(x: int) -> int:
+            return x + 1
+
+        @node(retry=3, cache=True)
+        def step_b(x: int) -> int:
+            return x * 2
+
+    Args:
+        fn: The function to wrap (when used without parentheses).
+        retry: Number of retries on failure.
+        cache: Whether to cache the output.
+        timeout: Max execution time in seconds.
+        name: Override the node name (defaults to ``fn.__name__``).
+
+    Returns:
+        A ``Node`` instance (bare decorator) or a decorator factory.
+    """
+    import functools
+
+    def _wrap(func: F) -> Node:
+        node_name = name if name is not None else func.__name__
+        description = (func.__doc__ or "").strip().split("\n")[0]
+
+        wrapped = Node(
+            name=node_name,
+            fn=func,
+            retry=retry,
+            cache=cache,
+            timeout=timeout,
+            description=description,
+        )
+        functools.update_wrapper(wrapped, func)
+        return wrapped
+
+    # Bare decorator: @node
+    if fn is not None:
+        return _wrap(fn)
+
+    # Decorator factory: @node(retry=3, cache=True)
+    return _wrap

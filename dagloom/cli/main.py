@@ -1,0 +1,173 @@
+"""Dagloom CLI — Command line interface.
+
+Provides commands to serve the web UI, run pipelines, list pipelines,
+inspect DAG structures, and show version info.
+
+Usage::
+
+    dagloom serve          # Start web server
+    dagloom run <file>     # Run a pipeline from a Python file
+    dagloom list           # List registered pipelines
+    dagloom inspect <file> # Show DAG structure
+    dagloom version        # Show version info
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+import click
+
+import dagloom
+
+
+@click.group()
+def cli() -> None:
+    """Dagloom — A lightweight pipeline/workflow engine."""
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Bind host.")
+@click.option("--port", default=8000, type=int, help="Bind port.")
+@click.option("--reload", is_flag=True, help="Enable auto-reload (dev mode).")
+def serve(host: str, port: int, reload: bool) -> None:
+    """Start the Dagloom web server."""
+    import uvicorn
+
+    click.echo(f"🧶 Dagloom server starting on http://{host}:{port}")
+    uvicorn.run(
+        "dagloom.server.app:create_app",
+        host=host,
+        port=port,
+        reload=reload,
+        factory=True,
+    )
+
+
+@cli.command()
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--pipeline-var", default="pipeline", help="Pipeline variable name in the file.")
+@click.option(
+    "--input",
+    "-i",
+    "inputs",
+    multiple=True,
+    help='Input key=value pairs, e.g. -i url="https://...".',
+)
+def run(file: str, pipeline_var: str, inputs: tuple[str, ...]) -> None:
+    """Run a pipeline defined in a Python file."""
+    # Parse inputs.
+    kwargs: dict[str, Any] = {}
+    for item in inputs:
+        if "=" not in item:
+            click.echo(f"Invalid input format: {item!r} (expected key=value)", err=True)
+            sys.exit(1)
+        key, value = item.split("=", 1)
+        # Try to parse as JSON, fall back to string.
+        try:
+            kwargs[key] = json.loads(value)
+        except json.JSONDecodeError:
+            kwargs[key] = value
+
+    # Load the pipeline from file.
+    pipeline = _load_pipeline_from_file(file, pipeline_var)
+    if pipeline is None:
+        click.echo(
+            f"Could not find variable {pipeline_var!r} in {file!r}.",
+            err=True,
+        )
+        sys.exit(1)
+
+    click.echo(f"Running pipeline from {file} ...")
+    try:
+        result = pipeline.run(**kwargs)
+        click.echo(f"✅ Pipeline completed successfully.")
+        click.echo(f"Result: {result}")
+    except Exception as exc:
+        click.echo(f"❌ Pipeline failed: {exc}", err=True)
+        sys.exit(1)
+
+
+@cli.command("list")
+def list_cmd() -> None:
+    """List registered pipelines (from database)."""
+    import asyncio
+
+    from dagloom.store.db import Database
+
+    async def _list() -> list[dict[str, Any]]:
+        db = Database()
+        await db.connect()
+        pipelines = await db.list_pipelines()
+        await db.close()
+        return pipelines
+
+    pipelines = asyncio.run(_list())
+    if not pipelines:
+        click.echo("No pipelines registered yet.")
+        click.echo("Run a pipeline first, or use the web UI to create one.")
+        return
+
+    click.echo(f"{'Name':<30} {'ID':<15} {'Updated':<25}")
+    click.echo("-" * 70)
+    for p in pipelines:
+        click.echo(f"{p['name']:<30} {p['id']:<15} {p.get('updated_at', ''):<25}")
+
+
+@cli.command()
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--pipeline-var", default="pipeline", help="Pipeline variable name.")
+def inspect(file: str, pipeline_var: str) -> None:
+    """Inspect and display the DAG structure of a pipeline."""
+    pipeline = _load_pipeline_from_file(file, pipeline_var)
+    if pipeline is None:
+        click.echo(
+            f"Could not find variable {pipeline_var!r} in {file!r}.",
+            err=True,
+        )
+        sys.exit(1)
+
+    click.echo(pipeline.visualize())
+    click.echo(f"\nTotal nodes: {len(pipeline)}")
+    click.echo(f"Total edges: {len(pipeline.edges)}")
+    click.echo(f"Root nodes:  {', '.join(pipeline.root_nodes())}")
+    click.echo(f"Leaf nodes:  {', '.join(pipeline.leaf_nodes())}")
+
+
+@cli.command()
+def version() -> None:
+    """Show Dagloom version information."""
+    click.echo(f"dagloom {dagloom.__version__}")
+    click.echo(f"Python {sys.version}")
+
+
+# -- Helpers ------------------------------------------------------------------
+
+
+def _load_pipeline_from_file(
+    file_path: str, var_name: str
+) -> Any | None:
+    """Dynamically load a Pipeline object from a Python file.
+
+    Args:
+        file_path: Path to the Python file.
+        var_name: Name of the Pipeline variable to look for.
+
+    Returns:
+        The Pipeline object, or None if not found.
+    """
+    path = Path(file_path).resolve()
+    spec = importlib.util.spec_from_file_location("_user_pipeline", str(path))
+    if spec is None or spec.loader is None:
+        return None
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_user_pipeline"] = module
+    spec.loader.exec_module(module)
+
+    pipeline = getattr(module, var_name, None)
+    return pipeline

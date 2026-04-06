@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dagloom"
+version = "0.1.0"
+description = "A lightweight pipeline/workflow engine. Weave data processing nodes into DAG workflows with decorators and the >> operator."
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+authors = [
+    {name = "lucientong"},
+]
+keywords = [
+    "pipeline",
+    "workflow",
+    "dag",
+    "data-processing",
+    "etl",
+    "orchestration",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+dependencies = [
+    "networkx>=3.0",
+    "pydantic>=2.0",
+    "click>=8.0",
+    "aiosqlite>=0.19.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
+    "websockets>=11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0",
+    "httpx>=0.24.0",
+    "ruff>=0.1.0",
+]
+connectors = [
+    "asyncpg>=0.28.0",
+    "aiomysql>=0.2.0",
+    "aiobotocore>=2.5.0",
+    "httpx>=0.24.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/lucientong/dagloom"
+Documentation = "https://github.com/lucientong/dagloom#readme"
+Repository = "https://github.com/lucientong/dagloom"
+Issues = "https://github.com/lucientong/dagloom/issues"
+Changelog = "https://github.com/lucientong/dagloom/blob/master/CHANGELOG.md"
+
+[project.scripts]
+dagloom = "dagloom.cli.main:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dagloom"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 99
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "ANN", "B", "SIM"]
+ignore = ["ANN101", "ANN102"]
