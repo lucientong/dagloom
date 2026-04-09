@@ -2,13 +2,13 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/dagloom.svg)](https://pypi.org/project/dagloom/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](https://github.com/lucientong/dagloom/blob/master/LICENSE)
 
 **Like a loom weaving threads into fabric, Dagloom weaves data processing nodes into DAG workflows.**
 
 A lightweight pipeline/workflow engine for Python. Define nodes with decorators, connect them with the `>>` operator, visualize and edit in a drag-and-drop Web UI.
 
-[中文文档](README_zh.md) | [English](README.md)
+[中文文档](https://github.com/lucientong/dagloom/blob/master/README_zh.md)
 
 ---
 
@@ -120,9 +120,9 @@ dagloom/
 
 ## 📖 Documentation
 
-- [中文文档](README_zh.md)
-- [Architecture Guide](docs/en/ARCHITECTURE.md) | [架构文档](docs/zh/ARCHITECTURE.md)
-- [Getting Started (EN)](docs/en/getting-started.md) | [快速入门 (中文)](docs/zh/getting-started.md)
+- [中文文档](https://github.com/lucientong/dagloom/blob/master/README_zh.md)
+- [Architecture Guide](https://github.com/lucientong/dagloom/blob/master/docs/en/ARCHITECTURE.md) | [架构文档](https://github.com/lucientong/dagloom/blob/master/docs/zh/ARCHITECTURE.md)
+- [Getting Started (EN)](https://github.com/lucientong/dagloom/blob/master/docs/en/getting-started.md) | [快速入门 (中文)](https://github.com/lucientong/dagloom/blob/master/docs/zh/getting-started.md)
 
 ## 🤝 Contributing
 
@@ -136,4 +136,4 @@ Contributions are welcome! Please feel free to:
 
 ## 📄 License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+Apache License 2.0 — see [LICENSE](https://github.com/lucientong/dagloom/blob/master/LICENSE) for details.

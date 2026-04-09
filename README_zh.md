@@ -2,13 +2,13 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/dagloom.svg)](https://pypi.org/project/dagloom/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](https://github.com/lucientong/dagloom/blob/master/LICENSE)
 
 **如同织布机将丝线编织成织物，Dagloom 将数据处理节点编织成 DAG 工作流。**
 
 一个轻量级的 Python 管道/工作流引擎。使用装饰器定义节点，用 `>>` 运算符连接它们，在可拖拽的 Web UI 中可视化和编辑。
 
-[English](README.md) | [中文文档](README_zh.md)
+[English](https://github.com/lucientong/dagloom/blob/master/README.md)
 
 ---
 
@@ -203,9 +203,9 @@ async with PostgresConnector(config) as pg:
 
 ## 📖 文档
 
-- [快速入门](docs/zh/getting-started.md)
-- [架构文档](docs/zh/ARCHITECTURE.md)
-- [English Documentation](docs/en/getting-started.md)
+- [快速入门](https://github.com/lucientong/dagloom/blob/master/docs/zh/getting-started.md)
+- [架构文档](https://github.com/lucientong/dagloom/blob/master/docs/zh/ARCHITECTURE.md)
+- [English Documentation](https://github.com/lucientong/dagloom/blob/master/docs/en/getting-started.md)
 
 ## 🤝 贡献指南
 
@@ -219,4 +219,4 @@ async with PostgresConnector(config) as pg:
 
 ## 📄 许可证
 
-Apache License 2.0 — 详见 [LICENSE](LICENSE)。
+Apache License 2.0 — 详见 [LICENSE](https://github.com/lucientong/dagloom/blob/master/LICENSE)。
