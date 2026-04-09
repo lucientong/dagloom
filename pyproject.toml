@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dagloom"
-version = "0.1.0"
+version = "0.1.1"
 description = "A lightweight pipeline/workflow engine. Weave data processing nodes into DAG workflows with decorators and the >> operator."
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -50,7 +50,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0",
     "httpx>=0.24.0",
-    "ruff>=0.1.0",
+    "ruff>=0.1.1",
 ]
 connectors = [
     "asyncpg>=0.28.0",

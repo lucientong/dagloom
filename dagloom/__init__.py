@@ -20,7 +20,7 @@ Example::
     result = pipeline.run(name="World")
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from dagloom.core.node import node
 from dagloom.core.pipeline import Pipeline
