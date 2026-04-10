@@ -36,8 +36,8 @@ def code_to_dag(source_code: str) -> dict[str, Any]:
     nodes: list[dict[str, Any]] = []
     edges: list[list[str]] = []
 
-    for item in ast.walk(tree):
-        # Extract @node decorated functions.
+    # Only extract module-level function definitions (not nested ones).
+    for item in ast.iter_child_nodes(tree):
         if isinstance(item, ast.FunctionDef):
             node_info = _extract_node_info(item)
             if node_info:
@@ -98,14 +98,12 @@ def dag_to_code(dag: dict[str, Any], pipeline_var: str = "pipeline") -> str:
         lines.append("")
         lines.append("")
 
-    # Build >> chain from edges (find linear order).
+    # Build >> chain from edges.
     edges = dag.get("edges", [])
     if edges:
-        chain = _build_chain_from_edges(edges)
-        if chain:
-            chain_str = " >> ".join(chain)
-            lines.append(f"{pipeline_var} = {chain_str}")
-            lines.append("")
+        statements = _build_dag_statements(edges, pipeline_var)
+        lines.extend(statements)
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -148,6 +146,82 @@ def _extract_rshift_chain(node: ast.AST) -> list[str]:
     return []
 
 
+def _build_dag_statements(edges: list[list[str]], pipeline_var: str = "pipeline") -> list[str]:
+    """Build Python code statements from DAG edges.
+
+    Handles both linear chains and complex DAGs with fan-out / fan-in.
+    For linear chains it produces: ``pipeline = a >> b >> c``
+    For complex DAGs it produces explicit ``Pipeline()`` construction code.
+
+    Args:
+        edges: List of ``[source, target]`` pairs.
+        pipeline_var: Variable name for the pipeline.
+
+    Returns:
+        A list of code lines.
+    """
+    if not edges:
+        return []
+
+    # Build adjacency list (supports fan-out).
+    graph: dict[str, list[str]] = {}
+    incoming: dict[str, list[str]] = {}
+    all_nodes: set[str] = set()
+
+    for src, tgt in edges:
+        graph.setdefault(src, []).append(tgt)
+        incoming.setdefault(tgt, []).append(src)
+        all_nodes.add(src)
+        all_nodes.add(tgt)
+
+    # Find roots (no incoming).
+    roots = [n for n in all_nodes if n not in incoming]
+
+    # Check if the DAG is a simple linear chain.
+    is_linear = all(len(succs) <= 1 for succs in graph.values()) and len(roots) == 1
+    if is_linear:
+        chain = _build_chain_from_edges(edges)
+        if chain:
+            return [f"{pipeline_var} = {' >> '.join(chain)}"]
+
+    # Complex DAG: generate explicit Pipeline construction code.
+    lines = [
+        "from dagloom import Pipeline",
+        "",
+        f"{pipeline_var} = Pipeline()",
+    ]
+
+    # Topological sort for stable ordering.
+    ordered = _topo_sort(all_nodes, edges)
+    for node_name in ordered:
+        lines.append(f"{pipeline_var}.add_node({node_name})")
+
+    for src, tgt in edges:
+        lines.append(f'{pipeline_var}.add_edge("{src}", "{tgt}")')
+
+    return lines
+
+
+def _topo_sort(nodes: set[str], edges: list[list[str]]) -> list[str]:
+    """Simple topological sort for code generation ordering."""
+    in_degree: dict[str, int] = {n: 0 for n in nodes}
+    graph: dict[str, list[str]] = {n: [] for n in nodes}
+    for src, tgt in edges:
+        graph[src].append(tgt)
+        in_degree[tgt] = in_degree.get(tgt, 0) + 1
+
+    queue = sorted(n for n in nodes if in_degree[n] == 0)
+    result: list[str] = []
+    while queue:
+        node = queue.pop(0)
+        result.append(node)
+        for neighbor in sorted(graph.get(node, [])):
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+    return result
+
+
 def _build_chain_from_edges(edges: list[list[str]]) -> list[str]:
     """Build an ordered chain from edge pairs (simple linear case)."""
     if not edges:
@@ -168,7 +242,7 @@ def _build_chain_from_edges(edges: list[list[str]]) -> list[str]:
 
     # Follow the chain from root.
     chain = []
-    current = roots.pop()
+    current: str | None = roots.pop()
     visited: set[str] = set()
     while current and current not in visited:
         chain.append(current)

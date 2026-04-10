@@ -209,6 +209,35 @@ class Database:
         row = await cursor.fetchone()
         return self._row_to_dict(row) if row else None
 
+    async def get_latest_execution(
+        self,
+        pipeline_id: str,
+        status: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Fetch the most recent execution for a pipeline.
+
+        Args:
+            pipeline_id: The pipeline whose executions to query.
+            status: If provided, filter by this status (e.g. ``"failed"``).
+
+        Returns:
+            A dict representing the execution record, or ``None``.
+        """
+        if status:
+            cursor = await self.conn.execute(
+                "SELECT * FROM executions WHERE pipeline_id = ? AND status = ? "
+                "ORDER BY started_at DESC LIMIT 1",
+                (pipeline_id, status),
+            )
+        else:
+            cursor = await self.conn.execute(
+                "SELECT * FROM executions WHERE pipeline_id = ? "
+                "ORDER BY started_at DESC LIMIT 1",
+                (pipeline_id,),
+            )
+        row = await cursor.fetchone()
+        return self._row_to_dict(row) if row else None
+
     # -- Node Execution CRUD --------------------------------------------------
 
     async def save_node_execution(

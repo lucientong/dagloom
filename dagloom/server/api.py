@@ -6,6 +6,7 @@ checking status, and interacting with the DAG structure.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -94,8 +95,8 @@ async def list_pipelines() -> list[dict[str, Any]]:
             "id": p["id"],
             "name": p["name"],
             "description": p.get("description", ""),
-            "node_count": len(__import__("json").loads(p.get("node_names", "[]"))),
-            "edge_count": len(__import__("json").loads(p.get("edges", "[]"))),
+            "node_count": len(json.loads(p.get("node_names", "[]"))),
+            "edge_count": len(json.loads(p.get("edges", "[]"))),
             "updated_at": p.get("updated_at", ""),
         }
         for p in pipelines
@@ -144,18 +145,13 @@ async def get_pipeline_status(pipeline_id: str) -> dict[str, Any]:
     if db is None:
         raise HTTPException(status_code=500, detail="Database not initialized.")
 
-    # Get the most recent execution for this pipeline.
-    cursor = await db.conn.execute(
-        "SELECT * FROM executions WHERE pipeline_id = ? ORDER BY started_at DESC LIMIT 1",
-        (pipeline_id,),
-    )
-    row = await cursor.fetchone()
-    if row is None:
+    # Get the most recent execution for this pipeline via Database helper.
+    record = await db.get_latest_execution(pipeline_id)
+    if record is None:
         raise HTTPException(
             status_code=404, detail=f"No executions found for pipeline {pipeline_id!r}."
         )
 
-    record = dict(row)
     return {
         "execution_id": record["id"],
         "pipeline_id": record["pipeline_id"],
@@ -173,20 +169,14 @@ async def resume_pipeline(pipeline_id: str) -> dict[str, Any]:
     if db is None:
         raise HTTPException(status_code=500, detail="Database not initialized.")
 
-    # Find the latest failed execution.
-    cursor = await db.conn.execute(
-        "SELECT * FROM executions WHERE pipeline_id = ? AND status = 'failed' "
-        "ORDER BY started_at DESC LIMIT 1",
-        (pipeline_id,),
-    )
-    row = await cursor.fetchone()
-    if row is None:
+    # Find the latest failed execution via Database helper.
+    record = await db.get_latest_execution(pipeline_id, status="failed")
+    if record is None:
         raise HTTPException(
             status_code=404,
             detail=f"No failed execution found for pipeline {pipeline_id!r}.",
         )
 
-    record = dict(row)
     execution_id = record["id"]
     now = datetime.now(UTC).isoformat()
 
@@ -221,8 +211,6 @@ async def get_dag(pipeline_id: str) -> dict[str, Any]:
     pipeline = await db.get_pipeline(pipeline_id)
     if pipeline is None:
         raise HTTPException(status_code=404, detail=f"Pipeline {pipeline_id!r} not found.")
-
-    import json
 
     nodes_raw = json.loads(pipeline.get("node_names", "[]"))
     edges_raw = json.loads(pipeline.get("edges", "[]"))

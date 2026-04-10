@@ -22,6 +22,8 @@ Example::
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 from typing import Any
 
@@ -207,6 +209,10 @@ class Pipeline:
         node receives the output of its predecessor. If a node has multiple
         predecessors, it receives a dict keyed by predecessor name.
 
+        Supports both sync and async node functions. Async nodes are
+        executed via ``asyncio.run`` when called from a synchronous context,
+        or via the running event loop if one is already active.
+
         Args:
             **inputs: Keyword arguments passed to root nodes.
 
@@ -231,15 +237,15 @@ class Pipeline:
             try:
                 # Determine input for this node.
                 if node_name in roots:
-                    result = node(**inputs)
+                    result = self._call_node(node, **inputs)
                 else:
                     preds = self.predecessors(node_name)
                     if len(preds) == 1:
-                        result = node(ctx.get_output(preds[0]))
+                        result = self._call_node(node, ctx.get_output(preds[0]))
                     else:
                         # Multiple predecessors: pass dict of outputs.
                         pred_outputs = {p: ctx.get_output(p) for p in preds}
-                        result = node(pred_outputs)
+                        result = self._call_node(node, pred_outputs)
 
                 ctx.set_output(node_name, result)
                 info.mark_success()
@@ -256,6 +262,45 @@ class Pipeline:
         if len(leaves) == 1:
             return ctx.get_output(leaves[0])
         return {leaf: ctx.get_output(leaf) for leaf in leaves}
+
+    async def arun(self, **inputs: Any) -> Any:
+        """Execute the pipeline asynchronously using :class:`AsyncExecutor`.
+
+        This is a convenience method that creates an ``AsyncExecutor``
+        internally and delegates to it.
+
+        Args:
+            **inputs: Keyword arguments passed to root nodes.
+
+        Returns:
+            The output of the leaf node(s).
+        """
+        from dagloom.scheduler.executor import AsyncExecutor
+
+        executor = AsyncExecutor(self)
+        return await executor.execute(**inputs)
+
+    @staticmethod
+    def _call_node(node: Node, *args: Any, **kwargs: Any) -> Any:
+        """Call a node function, transparently handling async functions.
+
+        If the node wraps a coroutine function, it is executed using
+        ``asyncio.run`` (or the running loop if available).
+        """
+        result = node(*args, **kwargs)
+        if inspect.iscoroutine(result):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None and loop.is_running():
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(asyncio.run, result)
+                    return future.result()
+            return asyncio.run(result)
+        return result
 
     # -- Utilities -----------------------------------------------------------
 
