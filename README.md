@@ -59,6 +59,78 @@ result = pipeline.run(name="World")
 print(result)  # 🎉 HELLO, WORLD! 🎉
 ```
 
+### Conditional Branching
+
+Use the `|` operator to create mutually exclusive branches — the runtime selects which branch to execute based on the upstream output:
+
+```python
+from dagloom import node
+
+@node
+def classify(text: str) -> dict:
+    """Route to different processors."""
+    if "urgent" in text:
+        return {"branch": "urgent_handler", "text": text}
+    return {"branch": "normal_handler", "text": text}
+
+@node
+def urgent_handler(data: dict) -> str:
+    return f"🚨 URGENT: {data['text']}"
+
+@node
+def normal_handler(data: dict) -> str:
+    return f"📋 Normal: {data['text']}"
+
+pipeline = classify >> (urgent_handler | normal_handler)
+result = pipeline.run(text="urgent: server down!")
+# 🚨 URGENT: urgent: server down!
+```
+
+### Streaming Nodes (Generator)
+
+Node functions can be generators — yielded values are automatically collected into a list:
+
+```python
+@node
+def stream_data(url: str):
+    """Yield data chunks."""
+    for i in range(5):
+        yield {"chunk": i, "url": url}
+
+@node
+def aggregate(chunks: list[dict]) -> int:
+    return len(chunks)
+
+pipeline = stream_data >> aggregate
+result = pipeline.run(url="https://example.com")
+# 5
+```
+
+### Execution Hooks
+
+Monitor node execution with `on_node_start` / `on_node_end` callbacks:
+
+```python
+import asyncio
+from dagloom import node, AsyncExecutor
+
+@node
+def step(x: int) -> int:
+    return x + 1
+
+pipeline = step
+
+def my_hook(node_name, ctx):
+    print(f"  → {node_name}: {ctx.get_node_info(node_name).status}")
+
+executor = AsyncExecutor(
+    pipeline,
+    on_node_start=my_hook,
+    on_node_end=my_hook,
+)
+result = asyncio.run(executor.execute(x=1))
+```
+
 ### Advanced Features
 
 ```python

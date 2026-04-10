@@ -26,6 +26,48 @@ if TYPE_CHECKING:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+class Branch:
+    """A group of mutually exclusive Node alternatives.
+
+    Created via the ``|`` operator::
+
+        branch = validate_a | validate_b | validate_c
+
+    When a ``Branch`` is connected to a pipeline with ``>>``, the
+    runtime selects **one** branch to execute based on the upstream
+    output:
+
+    * If the upstream output is a *dict* containing a ``"branch"`` key,
+      its value is used to look up the branch node by name.
+    * If the upstream output is *truthy*, the first branch is executed;
+      otherwise the second branch is executed (for two-branch groups).
+    * For any other case the first branch is used as a default.
+
+    Attributes:
+        nodes: List of Node objects forming the branch alternatives.
+    """
+
+    def __init__(self, nodes: list[Node]) -> None:
+        self.nodes = list(nodes)
+
+    def __or__(self, other: Node | Branch) -> Branch:
+        """Add another alternative: ``branch | node``."""
+        if isinstance(other, Node):
+            return Branch([*self.nodes, other])
+        if isinstance(other, Branch):
+            return Branch([*self.nodes, *other.nodes])
+        return NotImplemented
+
+    def __ror__(self, other: Any) -> Branch:
+        if isinstance(other, Node):
+            return Branch([other, *self.nodes])
+        return NotImplemented
+
+    def __repr__(self) -> str:
+        names = " | ".join(n.name for n in self.nodes)
+        return f"Branch({names})"
+
+
 class Node:
     """A decorated Python function that serves as a DAG node.
 
@@ -60,17 +102,18 @@ class Node:
         """Execute the wrapped function directly."""
         return self.fn(*args, **kwargs)
 
-    def __rshift__(self, other: Node | Pipeline) -> Pipeline:
-        """Build a pipeline: ``node_a >> node_b`` or ``node_a >> pipeline``.
+    def __rshift__(self, other: Node | Branch | Pipeline) -> Pipeline:
+        """Build a pipeline: ``node_a >> node_b``, ``node_a >> branch``, or
+        ``node_a >> pipeline``.
 
         Args:
-            other: The next Node or an existing Pipeline to append to.
+            other: The next Node, Branch, or an existing Pipeline to append to.
 
         Returns:
             A new Pipeline containing the connection.
 
         Raises:
-            TypeError: If *other* is not a Node or Pipeline.
+            TypeError: If *other* is not a Node, Branch, or Pipeline.
         """
         from dagloom.core.pipeline import Pipeline
 
@@ -81,6 +124,12 @@ class Node:
             pipe.add_edge(self.name, other.name)
             pipe._tail_nodes = [other.name]
             return pipe
+
+        if isinstance(other, Branch):
+            pipe = Pipeline()
+            pipe.add_node(self)
+            pipe._tail_nodes = [self.name]
+            return pipe >> other
 
         if isinstance(other, Pipeline):
             pipe = other.copy()
@@ -96,6 +145,21 @@ class Node:
         """Support ``other >> self`` when *other* does not implement __rshift__."""
         if isinstance(other, Node):
             return other.__rshift__(self)
+        return NotImplemented
+
+    def __or__(self, other: Node | Branch) -> Branch:
+        """Create a conditional branch: ``node_a | node_b``.
+
+        Args:
+            other: Another Node or an existing Branch to combine with.
+
+        Returns:
+            A ``Branch`` containing both alternatives.
+        """
+        if isinstance(other, Node):
+            return Branch([self, other])
+        if isinstance(other, Branch):
+            return Branch([self, *other.nodes])
         return NotImplemented
 
     def __hash__(self) -> int:

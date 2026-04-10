@@ -59,6 +59,78 @@ result = pipeline.run(name="World")
 print(result)  # 🎉 HELLO, WORLD! 🎉
 ```
 
+### 条件分支
+
+使用 `|` 运算符创建互斥分支——运行时根据上游输出自动选择执行哪个分支：
+
+```python
+from dagloom import node
+
+@node
+def classify(text: str) -> dict:
+    """根据内容路由到不同处理器。"""
+    if "紧急" in text:
+        return {"branch": "urgent_handler", "text": text}
+    return {"branch": "normal_handler", "text": text}
+
+@node
+def urgent_handler(data: dict) -> str:
+    return f"🚨 紧急: {data['text']}"
+
+@node
+def normal_handler(data: dict) -> str:
+    return f"📋 普通: {data['text']}"
+
+pipeline = classify >> (urgent_handler | normal_handler)
+result = pipeline.run(text="紧急: 服务器宕机!")
+# 🚨 紧急: 紧急: 服务器宕机!
+```
+
+### 流式节点（Generator）
+
+节点函数可以是生成器——yield 的值会被自动收集为列表：
+
+```python
+@node
+def stream_data(url: str):
+    """逐块产出数据。"""
+    for i in range(5):
+        yield {"chunk": i, "url": url}
+
+@node
+def aggregate(chunks: list[dict]) -> int:
+    return len(chunks)
+
+pipeline = stream_data >> aggregate
+result = pipeline.run(url="https://example.com")
+# 5
+```
+
+### 执行钩子
+
+通过 `on_node_start` / `on_node_end` 回调监控节点执行：
+
+```python
+import asyncio
+from dagloom import node, AsyncExecutor
+
+@node
+def step(x: int) -> int:
+    return x + 1
+
+pipeline = step
+
+def my_hook(node_name, ctx):
+    print(f"  → {node_name}: {ctx.get_node_info(node_name).status}")
+
+executor = AsyncExecutor(
+    pipeline,
+    on_node_start=my_hook,
+    on_node_end=my_hook,
+)
+result = asyncio.run(executor.execute(x=1))
+```
+
 ### 高级特性
 
 ```python
@@ -138,14 +210,14 @@ def my_step(input_data: dict) -> dict:
 
 ### 管道（Pipeline）
 
-**管道** 是由节点组成的 DAG（有向无环图），使用 `>>` 运算符构建。
+**管道** 是由节点组成的 DAG（有向无环图），使用 `>>` 运算符构建。用 `|` 创建条件分支。
 
 ```python
 # 线性管道
 pipeline = fetch >> clean >> transform >> save
 
-# 分支管道
-pipeline = fetch >> (process_a | process_b) >> merge
+# 条件分支管道（运行时根据上游输出选择分支）
+pipeline = classify >> (urgent_handler | normal_handler) >> merge
 ```
 
 ### 执行模式
@@ -156,9 +228,13 @@ result = pipeline.run(url="https://...")
 
 # 异步执行（同层节点并发运行）
 import asyncio
-from dagloom.scheduler import AsyncExecutor
+from dagloom import AsyncExecutor
 
-executor = AsyncExecutor(pipeline)
+executor = AsyncExecutor(
+    pipeline,
+    on_node_start=lambda name, ctx: print(f"▶ {name}"),
+    on_node_end=lambda name, ctx: print(f"✓ {name}"),
+)
 result = asyncio.run(executor.execute(url="https://..."))
 ```
 

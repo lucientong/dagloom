@@ -6,7 +6,9 @@ checking status, and interacting with the DAG structure.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -17,6 +19,7 @@ from pydantic import BaseModel, Field
 from dagloom.server.ws import ConnectionManager
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 # -- Request / Response models -----------------------------------------------
@@ -105,7 +108,13 @@ async def list_pipelines() -> list[dict[str, Any]]:
 
 @router.post("/pipelines/{pipeline_id}/run", response_model=ExecutionResponse)
 async def run_pipeline(pipeline_id: str, body: RunRequest) -> dict[str, Any]:
-    """Trigger a pipeline execution."""
+    """Trigger a pipeline execution.
+
+    The pipeline is executed asynchronously in a background task via
+    ``AsyncExecutor``.  If the pipeline has registered ``Node`` objects
+    (via ``set_state("pipelines", ...)``), real execution takes place;
+    otherwise only the database status is updated.
+    """
     db = get_state("db")
     if db is None:
         raise HTTPException(status_code=500, detail="Database not initialized.")
@@ -130,12 +139,72 @@ async def run_pipeline(pipeline_id: str, body: RunRequest) -> dict[str, Any]:
         {"type": "execution_started", "execution_id": execution_id},
     )
 
+    # Try to run the pipeline for real if a Pipeline object is registered.
+    registered_pipelines: dict[str, Any] = get_state("pipelines") or {}
+    pipe_obj = registered_pipelines.get(pipeline_id)
+
+    if pipe_obj is not None:
+        asyncio.create_task(
+            _run_pipeline_background(
+                pipe_obj,
+                execution_id,
+                pipeline_id,
+                body.inputs,
+                db,
+            )
+        )
+
     return {
         "execution_id": execution_id,
         "pipeline_id": pipeline_id,
         "status": "running",
         "started_at": now,
     }
+
+
+async def _run_pipeline_background(
+    pipe_obj: Any,
+    execution_id: str,
+    pipeline_id: str,
+    inputs: dict[str, Any],
+    db: Any,
+) -> None:
+    """Execute a pipeline in the background and update DB status."""
+    from dagloom.scheduler.executor import AsyncExecutor
+
+    try:
+        executor = AsyncExecutor(pipe_obj)
+        await executor.execute(**inputs)
+
+        now = datetime.now(UTC).isoformat()
+        await db.save_execution(
+            execution_id=execution_id,
+            pipeline_id=pipeline_id,
+            status="success",
+            finished_at=now,
+        )
+        await ws_manager.broadcast(
+            pipeline_id,
+            {"type": "execution_completed", "execution_id": execution_id},
+        )
+    except Exception as exc:
+        now = datetime.now(UTC).isoformat()
+        await db.save_execution(
+            execution_id=execution_id,
+            pipeline_id=pipeline_id,
+            status="failed",
+            finished_at=now,
+            error_message=str(exc),
+        )
+        await ws_manager.broadcast(
+            pipeline_id,
+            {
+                "type": "execution_failed",
+                "execution_id": execution_id,
+                "error": str(exc),
+            },
+        )
+        logger.error("Pipeline %s execution failed: %s", pipeline_id, exc)
 
 
 @router.get("/pipelines/{pipeline_id}/status", response_model=ExecutionResponse)

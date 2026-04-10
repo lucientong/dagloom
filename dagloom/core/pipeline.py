@@ -35,7 +35,7 @@ from dagloom.core.dag import (
     topological_sort,
     validate_dag,
 )
-from dagloom.core.node import Node
+from dagloom.core.node import Branch, Node
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,9 @@ class Pipeline:
         self._edges: list[tuple[str, str]] = []
         # Track the "tail" nodes of the latest chain for >> operator.
         self._tail_nodes: list[str] = []
+        # Conditional branches: maps a "virtual" group key to Branch objects.
+        # Key is the predecessor node name; value is the Branch.
+        self._branches: dict[str, Branch] = {}
 
     # -- Graph construction --------------------------------------------------
 
@@ -89,17 +92,18 @@ class Pipeline:
 
     # -- Operator overloading -----------------------------------------------
 
-    def __rshift__(self, other: Node | Pipeline) -> Pipeline:
-        """Extend the pipeline: ``pipeline >> node`` or ``pipeline >> other_pipeline``.
+    def __rshift__(self, other: Node | Branch | Pipeline) -> Pipeline:
+        """Extend the pipeline: ``pipeline >> node``, ``pipeline >> branch``,
+        or ``pipeline >> other_pipeline``.
 
         Args:
-            other: A Node or Pipeline to connect after the current tail.
+            other: A Node, Branch, or Pipeline to connect after the current tail.
 
         Returns:
             This pipeline (mutated) for chaining.
 
         Raises:
-            TypeError: If *other* is neither a Node nor a Pipeline.
+            TypeError: If *other* is not a Node, Branch, or Pipeline.
         """
         if isinstance(other, Node):
             self.add_node(other)
@@ -107,6 +111,19 @@ class Pipeline:
             for tail in self._tail_nodes:
                 self.add_edge(tail, other.name)
             self._tail_nodes = [other.name]
+            return self
+
+        if isinstance(other, Branch):
+            # Register all branch nodes and connect tails to each.
+            branch_names: list[str] = []
+            for branch_node in other.nodes:
+                self.add_node(branch_node)
+                for tail in self._tail_nodes:
+                    self.add_edge(tail, branch_node.name)
+                    # Record this branch relationship.
+                    self._branches[tail] = other
+                branch_names.append(branch_node.name)
+            self._tail_nodes = branch_names
             return self
 
         if isinstance(other, Pipeline):
@@ -213,6 +230,16 @@ class Pipeline:
         executed via ``asyncio.run`` when called from a synchronous context,
         or via the running event loop if one is already active.
 
+        **Conditional branches**: When a node feeds into a ``Branch``
+        group (created via ``|``), the runtime selects which branch to
+        execute:
+
+        * If the upstream output is a *dict* containing a ``"branch"``
+          key, its value is matched against branch node names.
+        * If the upstream output is *truthy*, the first branch runs;
+          otherwise the second branch runs (for two-branch groups).
+        * Unselected branch nodes are marked *SKIPPED*.
+
         Args:
             **inputs: Keyword arguments passed to root nodes.
 
@@ -228,8 +255,13 @@ class Pipeline:
         leaves = find_leaf_nodes(digraph)
 
         ctx = ExecutionContext(pipeline_name=self.name or "unnamed")
+        skipped_nodes: set[str] = set()
 
         for node_name in order:
+            if node_name in skipped_nodes:
+                ctx.get_node_info(node_name).mark_skipped()
+                continue
+
             node = self._nodes[node_name]
             info = ctx.get_node_info(node_name)
             info.mark_running()
@@ -251,6 +283,14 @@ class Pipeline:
                 info.mark_success()
                 logger.debug("Node %s completed successfully.", node_name)
 
+                # --- Branch selection ---
+                if node_name in self._branches:
+                    branch = self._branches[node_name]
+                    selected = _select_branch(result, branch)
+                    for bn in branch.nodes:
+                        if bn.name != selected:
+                            skipped_nodes.add(bn.name)
+
             except Exception as exc:
                 info.mark_failed(str(exc))
                 logger.error("Node %s failed: %s", node_name, exc)
@@ -261,7 +301,11 @@ class Pipeline:
         # Return result.
         if len(leaves) == 1:
             return ctx.get_output(leaves[0])
-        return {leaf: ctx.get_output(leaf) for leaf in leaves}
+        # Filter out skipped leaves.
+        active_leaves = [lf for lf in leaves if lf not in skipped_nodes]
+        if len(active_leaves) == 1:
+            return ctx.get_output(active_leaves[0])
+        return {leaf: ctx.get_output(leaf) for leaf in active_leaves}
 
     async def arun(self, **inputs: Any) -> Any:
         """Execute the pipeline asynchronously using :class:`AsyncExecutor`.
@@ -282,12 +326,17 @@ class Pipeline:
 
     @staticmethod
     def _call_node(node: Node, *args: Any, **kwargs: Any) -> Any:
-        """Call a node function, transparently handling async functions.
+        """Call a node function, transparently handling async functions
+        and generator functions.
 
-        If the node wraps a coroutine function, it is executed using
-        ``asyncio.run`` (or the running loop if available).
+        - Coroutine functions: awaited via ``asyncio.run`` (or running loop).
+        - Generator functions: collected into a list.
+        - Async generator functions: collected into a list.
+        - Regular functions: called directly.
         """
         result = node(*args, **kwargs)
+
+        # Handle coroutines (async def).
         if inspect.iscoroutine(result):
             try:
                 loop = asyncio.get_running_loop()
@@ -300,6 +349,29 @@ class Pipeline:
                     future = pool.submit(asyncio.run, result)
                     return future.result()
             return asyncio.run(result)
+
+        # Handle generators (def with yield).
+        if inspect.isgenerator(result):
+            return list(result)
+
+        # Handle async generators (async def with yield).
+        if inspect.isasyncgen(result):
+
+            async def _collect() -> list[Any]:
+                return [item async for item in result]
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None and loop.is_running():
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(asyncio.run, _collect())
+                    return future.result()
+            return asyncio.run(_collect())
+
         return result
 
     # -- Utilities -----------------------------------------------------------
@@ -310,6 +382,7 @@ class Pipeline:
         new._nodes = dict(self._nodes)
         new._edges = list(self._edges)
         new._tail_nodes = list(self._tail_nodes)
+        new._branches = dict(self._branches)
         return new
 
     def visualize(self) -> str:
@@ -330,3 +403,41 @@ class Pipeline:
 
     def __len__(self) -> int:
         return len(self._nodes)
+
+
+# ---------------------------------------------------------------------------
+# Branch selection helper
+# ---------------------------------------------------------------------------
+
+
+def _select_branch(output: Any, branch: Branch) -> str:
+    """Determine which branch node to execute based on upstream output.
+
+    Selection rules:
+
+    1. If *output* is a dict with a ``"branch"`` key, its value is matched
+       against branch node names.
+    2. For two-branch groups: truthy output → first branch, falsy → second.
+    3. Fallback: the first branch node.
+
+    Args:
+        output: The upstream node's return value.
+        branch: The ``Branch`` containing the candidate nodes.
+
+    Returns:
+        The **name** of the selected branch node.
+    """
+    branch_names = [n.name for n in branch.nodes]
+
+    # Rule 1: explicit branch key.
+    if isinstance(output, dict) and "branch" in output:
+        requested = output["branch"]
+        if requested in branch_names:
+            return requested
+
+    # Rule 2: boolean selection for two-branch groups.
+    if len(branch_names) == 2:
+        return branch_names[0] if output else branch_names[1]
+
+    # Fallback: first branch.
+    return branch_names[0]

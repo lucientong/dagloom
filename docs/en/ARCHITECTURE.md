@@ -192,6 +192,7 @@ class Pipeline:
     _nodes: dict[str, Node]             # Node registry
     _edges: list[tuple[str, str]]       # Edge list (source, target)
     _tail_nodes: list[str]              # Current chain tails for >>
+    _branches: dict[str, Branch]        # Conditional branch mapping (predecessor name → Branch)
 ```
 
 **Building a Pipeline:**
@@ -312,6 +313,70 @@ class AsyncExecutor:
                 for name in layer
             ])
 ```
+
+### Conditional Branch Selection
+
+In both synchronous and asynchronous execution, when a node feeds into a `Branch`, the runtime selects which branch to execute after the node completes:
+
+```python
+# Synchronous (Pipeline.run)
+if node_name in self._branches:
+    branch = self._branches[node_name]
+    selected = _select_branch(result, branch)
+    for bn in branch.nodes:
+        if bn.name != selected:
+            skipped_nodes.add(bn.name)  # Unselected branches are skipped
+
+# Asynchronous (AsyncExecutor)
+# After each layer completes, branch selection is performed
+for name in layer:
+    if name in self.pipeline._branches:
+        selected = _select_branch(output, branch)
+        # Unselected branches are skipped in subsequent layers
+```
+
+### Streaming Nodes (Generator / Async Generator)
+
+Node functions can be generators or async generators — the runtime automatically collects yielded values:
+
+```python
+@node
+def stream_chunks(url: str):
+    for i in range(10):
+        yield fetch_chunk(url, offset=i)
+
+# Pipeline._call_node handles transparently:
+# - generator → list(generator)
+# - async generator → [item async for item in gen]
+# - coroutine → await / asyncio.run
+# - regular function → direct call
+```
+
+In `AsyncExecutor._run_callable`:
+
+| Function Type | Detection | Handling |
+|--------------|-----------|----------|
+| async generator | `isasyncgenfunction()` | `[item async for item in fn()]` |
+| coroutine | `iscoroutinefunction()` | `await fn()` |
+| sync generator | `isgeneratorfunction()` | `asyncio.to_thread(lambda: list(fn()))` |
+| regular function | fallback | `asyncio.to_thread(fn)` |
+
+### Execution Hooks (on_node_start / on_node_end)
+
+`AsyncExecutor` supports callbacks before and after each node execution:
+
+```python
+executor = AsyncExecutor(
+    pipeline,
+    on_node_start=lambda name, ctx: print(f"Starting: {name}"),
+    on_node_end=lambda name, ctx: print(f"Finished: {name}"),
+)
+```
+
+- Hooks can be sync or async functions (auto-detected via `inspect.isawaitable`)
+- Hook exceptions **do not interrupt** execution — only a warning is logged
+- `on_node_start` fires after cache check, before actual execution
+- `on_node_end` fires after node success or after all retries are exhausted
 
 ### Retry with Exponential Backoff
 

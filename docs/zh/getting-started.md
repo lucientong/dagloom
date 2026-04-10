@@ -92,6 +92,75 @@ def my_step(input_data: dict) -> dict:
 pipeline = fetch >> clean >> transform >> save
 ```
 
+### 条件分支（Branch）
+
+使用 `|` 运算符创建互斥分支——运行时根据上游输出自动选择执行哪个分支：
+
+```python
+@node
+def classify(text: str) -> dict:
+    if "紧急" in text:
+        return {"branch": "urgent_handler", "text": text}
+    return {"branch": "normal_handler", "text": text}
+
+@node
+def urgent_handler(data: dict) -> str:
+    return f"🚨 紧急: {data['text']}"
+
+@node
+def normal_handler(data: dict) -> str:
+    return f"📋 普通: {data['text']}"
+
+pipeline = classify >> (urgent_handler | normal_handler)
+result = pipeline.run(text="紧急: 服务器宕机!")
+```
+
+分支选择规则：
+1. 上游输出是 `dict` 且包含 `"branch"` 键 → 按名称匹配
+2. 双分支组：truthy → 第一个分支，falsy → 第二个分支
+3. 兜底：默认第一个分支
+
+### 流式节点（Generator）
+
+节点函数可以是生成器——yield 的值自动收集为列表：
+
+```python
+@node
+def stream_data(url: str):
+    for i in range(5):
+        yield {"chunk": i, "url": url}
+
+@node
+def aggregate(chunks: list[dict]) -> int:
+    return len(chunks)
+
+pipeline = stream_data >> aggregate
+result = pipeline.run(url="https://example.com")
+# 5
+```
+
+同时也支持异步生成器（`async def` + `yield`）。
+
+### 执行钩子
+
+通过 `on_node_start` / `on_node_end` 回调监控节点执行：
+
+```python
+from dagloom import AsyncExecutor
+
+def my_hook(node_name, ctx):
+    print(f"  → {node_name}: {ctx.get_node_info(node_name).status}")
+
+executor = AsyncExecutor(
+    pipeline,
+    on_node_start=my_hook,
+    on_node_end=my_hook,
+)
+result = asyncio.run(executor.execute(x=1))
+```
+
+钩子可以是同步函数或异步函数，异常不会中断管道执行。
+
 ### 执行
 
 管道按 **拓扑排序** 执行 — 同层独立节点自动并行运行。

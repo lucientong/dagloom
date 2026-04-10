@@ -116,7 +116,7 @@ dagloom resume              # 从节点 3 继续执行
 
 ```
 dagloom/
-├── __init__.py          # 公开 API：node, Pipeline
+├── __init__.py          # 公开 API：node, Pipeline, Branch, AsyncExecutor 等
 ├── core/
 │   ├── __init__.py
 │   ├── node.py          # @node 装饰器和 Node 类
@@ -179,8 +179,32 @@ def step_b(x): ...
 关键实现细节：
 
 - **`__rshift__`**：实现 `node_a >> node_b` 语法
+- **`__or__`**：实现 `node_a | node_b` 创建条件分支 `Branch`
 - **`__call__`**：允许直接调用 `node(args)`
 - **类型内省**：通过 `inspect.signature` 提取输入参数和返回类型
+
+### Branch（条件分支）— `dagloom/core/node.py`
+
+**Branch** 表示一组互斥的节点替代方案，通过 `|` 运算符创建：
+
+```python
+class Branch:
+    nodes: list[Node]       # 分支中的候选节点
+```
+
+```python
+# 创建分支
+branch = validate_a | validate_b | validate_c
+
+# 连接到管道
+pipeline = classify >> (urgent_handler | normal_handler)
+```
+
+分支选择规则（`_select_branch`）：
+
+1. 如果上游输出是包含 `"branch"` 键的 *dict*，用其值匹配分支节点名称
+2. 对于双分支组：*truthy* 输出 → 第一个分支，*falsy* → 第二个分支
+3. 兜底：默认选择第一个分支
 
 ### Pipeline（管道）— `dagloom/core/pipeline.py`
 
@@ -192,6 +216,7 @@ class Pipeline:
     _nodes: dict[str, Node]             # 节点注册表
     _edges: list[tuple[str, str]]       # 边列表 (source, target)
     _tail_nodes: list[str]              # >> 操作的当前链尾
+    _branches: dict[str, Branch]        # 条件分支映射 (前驱节点名 → Branch)
 ```
 
 **构建 Pipeline：**
@@ -312,6 +337,70 @@ class AsyncExecutor:
                 for name in layer
             ])
 ```
+
+### 条件分支选择
+
+在同步和异步执行中，当节点连接到 `Branch` 时，运行时会在该节点执行后选择分支：
+
+```python
+# 同步 (Pipeline.run)
+if node_name in self._branches:
+    branch = self._branches[node_name]
+    selected = _select_branch(result, branch)
+    for bn in branch.nodes:
+        if bn.name != selected:
+            skipped_nodes.add(bn.name)  # 未选中的分支标记为跳过
+
+# 异步 (AsyncExecutor)
+# 同一层执行完毕后，对该层中的分支节点进行选择
+for name in layer:
+    if name in self.pipeline._branches:
+        selected = _select_branch(output, branch)
+        # 未选中的分支在后续层中跳过
+```
+
+### 流式节点（Generator / Async Generator）
+
+节点函数可以是生成器或异步生成器，运行时会自动收集 yield 的值：
+
+```python
+@node
+def stream_chunks(url: str):
+    for i in range(10):
+        yield fetch_chunk(url, offset=i)
+
+# Pipeline._call_node 自动处理：
+# - generator → list(generator)
+# - async generator → [item async for item in gen]
+# - coroutine → await / asyncio.run
+# - 普通函数 → 直接调用
+```
+
+在 `AsyncExecutor._run_callable` 中：
+
+| 函数类型 | 检测方式 | 处理方式 |
+|---------|---------|---------|
+| async generator | `isasyncgenfunction()` | `[item async for item in fn()]` |
+| coroutine | `iscoroutinefunction()` | `await fn()` |
+| sync generator | `isgeneratorfunction()` | `asyncio.to_thread(lambda: list(fn()))` |
+| 普通函数 | 兜底 | `asyncio.to_thread(fn)` |
+
+### 执行钩子（on_node_start / on_node_end）
+
+`AsyncExecutor` 支持在节点执行前后触发回调：
+
+```python
+executor = AsyncExecutor(
+    pipeline,
+    on_node_start=lambda name, ctx: print(f"开始: {name}"),
+    on_node_end=lambda name, ctx: print(f"结束: {name}"),
+)
+```
+
+- 钩子可以是同步函数或异步函数（通过 `inspect.isawaitable` 自动检测）
+- 钩子异常**不会中断**执行，只记录警告日志
+- `on_node_start` 在缓存检查之后、实际执行之前触发
+- `on_node_end` 在节点成功或所有重试耗尽后触发
 
 ### 指数退避重试
 

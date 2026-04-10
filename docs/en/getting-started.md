@@ -92,6 +92,75 @@ A **Pipeline** is a DAG (Directed Acyclic Graph) of connected nodes, built with 
 pipeline = fetch >> clean >> transform >> save
 ```
 
+### Conditional Branching
+
+Use the `|` operator to create mutually exclusive branches — the runtime selects which branch to execute based on the upstream output:
+
+```python
+@node
+def classify(text: str) -> dict:
+    if "urgent" in text:
+        return {"branch": "urgent_handler", "text": text}
+    return {"branch": "normal_handler", "text": text}
+
+@node
+def urgent_handler(data: dict) -> str:
+    return f"🚨 URGENT: {data['text']}"
+
+@node
+def normal_handler(data: dict) -> str:
+    return f"📋 Normal: {data['text']}"
+
+pipeline = classify >> (urgent_handler | normal_handler)
+result = pipeline.run(text="urgent: server down!")
+```
+
+Branch selection rules:
+1. If upstream output is a `dict` with a `"branch"` key → match by name
+2. Two-branch groups: truthy → first branch, falsy → second branch
+3. Fallback: first branch
+
+### Streaming Nodes (Generator)
+
+Node functions can be generators — yielded values are automatically collected into a list:
+
+```python
+@node
+def stream_data(url: str):
+    for i in range(5):
+        yield {"chunk": i, "url": url}
+
+@node
+def aggregate(chunks: list[dict]) -> int:
+    return len(chunks)
+
+pipeline = stream_data >> aggregate
+result = pipeline.run(url="https://example.com")
+# 5
+```
+
+Async generators (`async def` + `yield`) are also supported.
+
+### Execution Hooks
+
+Monitor node execution with `on_node_start` / `on_node_end` callbacks:
+
+```python
+from dagloom import AsyncExecutor
+
+def my_hook(node_name, ctx):
+    print(f"  → {node_name}: {ctx.get_node_info(node_name).status}")
+
+executor = AsyncExecutor(
+    pipeline,
+    on_node_start=my_hook,
+    on_node_end=my_hook,
+)
+result = asyncio.run(executor.execute(x=1))
+```
+
+Hooks can be sync or async functions. Hook exceptions do not interrupt pipeline execution.
+
 ### Execution
 
 Pipelines execute in **topological order** — independent nodes in the same layer run in parallel.

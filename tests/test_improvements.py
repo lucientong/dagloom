@@ -11,16 +11,16 @@ Covers:
 """
 
 import asyncio
+from typing import Any
 
 import pytest
 
 from dagloom.core.node import node
 from dagloom.core.pipeline import Pipeline
-from dagloom.scheduler.cache import CacheManager, compute_input_hash
+from dagloom.scheduler.cache import CacheManager
 from dagloom.scheduler.checkpoint import CheckpointManager
 from dagloom.scheduler.executor import AsyncExecutor, ExecutionError
 from dagloom.store.db import Database
-
 
 # -- Fixtures -----------------------------------------------------------------
 
@@ -313,7 +313,7 @@ class TestCodegenComplexDag:
         """code_to_dag should not extract nested function definitions."""
         from dagloom.server.codegen import code_to_dag
 
-        source = '''
+        source = """
 from dagloom import node
 
 @node
@@ -321,7 +321,7 @@ def outer(x):
     def inner_helper(y):
         return y + 1
     return inner_helper(x)
-'''
+"""
         dag = code_to_dag(source)
         names = [n["name"] for n in dag["nodes"]]
         assert "outer" in names
@@ -375,6 +375,7 @@ class TestPublicApi:
 
         expected = {
             "AsyncExecutor",
+            "Branch",
             "CacheManager",
             "CheckpointManager",
             "CycleError",
@@ -419,3 +420,380 @@ class TestDatabaseGetLatestExecution:
     async def test_returns_none_if_not_found(self, db) -> None:
         result = await db.get_latest_execution("nonexistent")
         assert result is None
+
+
+# -- Test: Conditional branching (| operator) --------------------------------
+
+
+class TestConditionalBranching:
+    """Test the | operator and branch selection logic."""
+
+    def test_branch_creation_via_or(self) -> None:
+        """node_a | node_b should create a Branch with two nodes."""
+        from dagloom.core.node import Branch
+
+        @node
+        def branch_a(x: int) -> int:
+            return x + 1
+
+        @node
+        def branch_b(x: int) -> int:
+            return x + 2
+
+        branch = branch_a | branch_b
+        assert isinstance(branch, Branch)
+        assert len(branch.nodes) == 2
+        assert branch.nodes[0].name == "branch_a"
+        assert branch.nodes[1].name == "branch_b"
+
+    def test_branch_triple_or(self) -> None:
+        """node_a | node_b | node_c should create a Branch with three nodes."""
+        from dagloom.core.node import Branch
+
+        @node
+        def opt_1(x: int) -> int:
+            return 1
+
+        @node
+        def opt_2(x: int) -> int:
+            return 2
+
+        @node
+        def opt_3(x: int) -> int:
+            return 3
+
+        branch = opt_1 | opt_2 | opt_3
+        assert isinstance(branch, Branch)
+        assert len(branch.nodes) == 3
+
+    def test_branch_repr(self) -> None:
+        @node
+        def x_node(x: int) -> int:
+            return x
+
+        @node
+        def y_node(x: int) -> int:
+            return x
+
+        branch = x_node | y_node
+        assert "x_node" in repr(branch)
+        assert "y_node" in repr(branch)
+
+    def test_pipeline_with_branch_dict_selector(self) -> None:
+        """Branch selection via dict with 'branch' key."""
+
+        @node
+        def router(x: int) -> dict:
+            if x > 0:
+                return {"branch": "positive", "value": x}
+            return {"branch": "negative", "value": x}
+
+        @node
+        def positive(data: dict) -> str:
+            return f"positive:{data['value']}"
+
+        @node
+        def negative(data: dict) -> str:
+            return f"negative:{data['value']}"
+
+        pipe = router >> (positive | negative)
+        result = pipe.run(x=5)
+        assert result == "positive:5"
+
+    def test_pipeline_with_branch_boolean_selector(self) -> None:
+        """Branch selection via truthy/falsy output for two-branch group."""
+
+        @node
+        def checker(x: int) -> bool:
+            return x > 0
+
+        @node
+        def yes_path(flag: bool) -> str:
+            return "yes"
+
+        @node
+        def no_path(flag: bool) -> str:
+            return "no"
+
+        pipe_true = checker >> (yes_path | no_path)
+        assert pipe_true.run(x=10) == "yes"
+
+        pipe_false = checker >> (yes_path | no_path)
+        assert pipe_false.run(x=-5) == "no"
+
+    def test_select_branch_fallback(self) -> None:
+        """Fallback: select first branch when no special output."""
+        from dagloom.core.node import Branch
+        from dagloom.core.pipeline import _select_branch
+
+        @node
+        def first(x: int) -> int:
+            return x
+
+        @node
+        def second(x: int) -> int:
+            return x
+
+        @node
+        def third(x: int) -> int:
+            return x
+
+        branch = Branch([first, second, third])
+        # Non-dict, non-boolean with 3 branches: should select first.
+        assert _select_branch("hello", branch) == "first"
+
+    @pytest.mark.asyncio
+    async def test_async_executor_with_branch(self) -> None:
+        """AsyncExecutor should handle branch selection."""
+
+        @node
+        def decider(x: int) -> dict:
+            return {"branch": "path_b", "data": x}
+
+        @node
+        def path_a(data: dict) -> str:
+            return "a"
+
+        @node
+        def path_b(data: dict) -> str:
+            return "b"
+
+        pipe = decider >> (path_a | path_b)
+        executor = AsyncExecutor(pipe)
+        result = await executor.execute(x=1)
+        assert result == "b"
+
+
+# -- Test: Node streaming (generator/async generator) ------------------------
+
+
+class TestNodeStreaming:
+    """Test generator and async generator node functions."""
+
+    def test_sync_generator_node(self) -> None:
+        """Generator node should be collected into a list."""
+
+        @node
+        def gen_items(n: int) -> list:
+            for i in range(n):
+                yield i * 10
+
+        pipe = Pipeline()
+        pipe.add_node(gen_items)
+        pipe._tail_nodes = ["gen_items"]
+
+        result = pipe.run(n=4)
+        assert result == [0, 10, 20, 30]
+
+    def test_sync_generator_in_chain(self) -> None:
+        """Generator node in a pipeline chain."""
+
+        @node
+        def source(n: int) -> int:
+            return n
+
+        @node
+        def expand(x: int) -> list:
+            yield from range(x)
+
+        @node
+        def count(items: list) -> int:
+            return len(items)
+
+        pipe = source >> expand >> count
+        result = pipe.run(n=5)
+        assert result == 5
+
+    def test_async_generator_node(self) -> None:
+        """Async generator node should be collected into a list."""
+
+        @node
+        async def async_gen(n: int) -> list:
+            for i in range(n):
+                yield i * 2
+
+        pipe = Pipeline()
+        pipe.add_node(async_gen)
+        pipe._tail_nodes = ["async_gen"]
+
+        result = pipe.run(n=3)
+        assert result == [0, 2, 4]
+
+    @pytest.mark.asyncio
+    async def test_async_executor_generator(self) -> None:
+        """AsyncExecutor should handle generator nodes."""
+
+        @node
+        def gen_squares(n: int) -> list:
+            for i in range(n):
+                yield i**2
+
+        pipe = Pipeline()
+        pipe.add_node(gen_squares)
+        pipe._tail_nodes = ["gen_squares"]
+
+        executor = AsyncExecutor(pipe)
+        result = await executor.execute(n=4)
+        assert result == [0, 1, 4, 9]
+
+    @pytest.mark.asyncio
+    async def test_async_executor_async_generator(self) -> None:
+        """AsyncExecutor should handle async generator nodes."""
+
+        @node
+        async def async_gen_cubes(n: int) -> list:
+            for i in range(n):
+                yield i**3
+
+        pipe = Pipeline()
+        pipe.add_node(async_gen_cubes)
+        pipe._tail_nodes = ["async_gen_cubes"]
+
+        executor = AsyncExecutor(pipe)
+        result = await executor.execute(n=3)
+        assert result == [0, 1, 8]
+
+
+# -- Test: Node execution hooks (on_node_start / on_node_end) ----------------
+
+
+class TestNodeExecutionHooks:
+    """Test on_node_start and on_node_end hooks in AsyncExecutor."""
+
+    @pytest.mark.asyncio
+    async def test_hooks_called_on_success(self) -> None:
+        """Hooks should be called for each node in execution order."""
+        events: list[str] = []
+
+        def on_start(name: str, ctx: Any) -> None:
+            events.append(f"start:{name}")
+
+        def on_end(name: str, ctx: Any) -> None:
+            events.append(f"end:{name}")
+
+        @node
+        def step1(x: int) -> int:
+            return x + 1
+
+        @node
+        def step2(x: int) -> int:
+            return x * 2
+
+        pipe = step1 >> step2
+        executor = AsyncExecutor(pipe, on_node_start=on_start, on_node_end=on_end)
+        result = await executor.execute(x=3)
+
+        assert result == 8  # (3+1)*2
+        assert "start:step1" in events
+        assert "end:step1" in events
+        assert "start:step2" in events
+        assert "end:step2" in events
+
+    @pytest.mark.asyncio
+    async def test_hooks_called_on_failure(self) -> None:
+        """Hooks should be called even when a node fails."""
+        events: list[str] = []
+
+        def on_start(name: str, ctx: Any) -> None:
+            events.append(f"start:{name}")
+
+        def on_end(name: str, ctx: Any) -> None:
+            events.append(f"end:{name}")
+
+        @node
+        def fail_step(x: int) -> int:
+            raise ValueError("boom")
+
+        pipe = Pipeline()
+        pipe.add_node(fail_step)
+        pipe._tail_nodes = ["fail_step"]
+
+        executor = AsyncExecutor(pipe, on_node_start=on_start, on_node_end=on_end)
+        with pytest.raises(ExecutionError):
+            await executor.execute(x=1)
+
+        assert "start:fail_step" in events
+        assert "end:fail_step" in events
+
+    @pytest.mark.asyncio
+    async def test_async_hooks(self) -> None:
+        """Async hook functions should be awaited."""
+        events: list[str] = []
+
+        async def on_start(name: str, ctx: Any) -> None:
+            events.append(f"async_start:{name}")
+
+        async def on_end(name: str, ctx: Any) -> None:
+            events.append(f"async_end:{name}")
+
+        @node
+        def compute(x: int) -> int:
+            return x * 10
+
+        pipe = Pipeline()
+        pipe.add_node(compute)
+        pipe._tail_nodes = ["compute"]
+
+        executor = AsyncExecutor(pipe, on_node_start=on_start, on_node_end=on_end)
+        result = await executor.execute(x=7)
+        assert result == 70
+        assert "async_start:compute" in events
+        assert "async_end:compute" in events
+
+    @pytest.mark.asyncio
+    async def test_hook_errors_do_not_break_execution(self) -> None:
+        """Hook errors should be swallowed, not break the pipeline."""
+
+        def bad_hook(name: str, ctx: Any) -> None:
+            raise RuntimeError("hook error")
+
+        @node
+        def ok_node(x: int) -> int:
+            return x + 1
+
+        pipe = Pipeline()
+        pipe.add_node(ok_node)
+        pipe._tail_nodes = ["ok_node"]
+
+        executor = AsyncExecutor(pipe, on_node_start=bad_hook, on_node_end=bad_hook)
+        # Should not raise despite bad hooks.
+        result = await executor.execute(x=5)
+        assert result == 6
+
+    @pytest.mark.asyncio
+    async def test_no_hooks_is_fine(self) -> None:
+        """Execution without hooks should work as before."""
+
+        @node
+        def identity(x: int) -> int:
+            return x
+
+        pipe = Pipeline()
+        pipe.add_node(identity)
+        pipe._tail_nodes = ["identity"]
+
+        executor = AsyncExecutor(pipe)
+        result = await executor.execute(x=42)
+        assert result == 42
+
+
+# -- Test: Updated public API (Branch export) --------------------------------
+
+
+class TestPublicApiBranch:
+    """Ensure Branch is now importable from top-level."""
+
+    def test_branch_import(self) -> None:
+        from dagloom import Branch  # noqa: F401
+
+        assert Branch is not None
+
+    def test_all_contains_branch(self) -> None:
+        import dagloom
+
+        assert "Branch" in dagloom.__all__
+
+    def test_version_is_030(self) -> None:
+        import dagloom
+
+        assert dagloom.__version__ == "0.3.0"

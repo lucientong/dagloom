@@ -20,11 +20,14 @@ from typing import Any
 from dagloom.core.context import ExecutionContext, NodeStatus
 from dagloom.core.dag import build_digraph, topological_layers, validate_dag
 from dagloom.core.node import Node
-from dagloom.core.pipeline import Pipeline
+from dagloom.core.pipeline import Pipeline, _select_branch
 from dagloom.scheduler.cache import CacheManager, compute_input_hash
 from dagloom.scheduler.checkpoint import CheckpointManager
 
 logger = logging.getLogger(__name__)
+
+# Type alias for hook callbacks.
+NodeHook = Any  # Callable[[str, ExecutionContext], None] or async variant
 
 # Default retry parameters
 _DEFAULT_RETRY_BASE_DELAY = 0.5  # seconds
@@ -51,6 +54,14 @@ class AsyncExecutor:
         pipeline: The pipeline to execute.
         retry_base_delay: Base delay in seconds for exponential backoff.
         retry_max_delay: Maximum delay cap for retries.
+        cache_manager: Optional cache manager for node output caching.
+        checkpoint_manager: Optional checkpoint manager for resume support.
+        on_node_start: Optional callback invoked before each node executes.
+            Signature: ``(node_name: str, ctx: ExecutionContext) -> None``
+            (may also be an async function).
+        on_node_end: Optional callback invoked after each node finishes.
+            Signature: ``(node_name: str, ctx: ExecutionContext) -> None``
+            (may also be an async function).
     """
 
     def __init__(
@@ -61,12 +72,16 @@ class AsyncExecutor:
         retry_max_delay: float = _DEFAULT_RETRY_MAX_DELAY,
         cache_manager: CacheManager | None = None,
         checkpoint_manager: CheckpointManager | None = None,
+        on_node_start: NodeHook | None = None,
+        on_node_end: NodeHook | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.retry_base_delay = retry_base_delay
         self.retry_max_delay = retry_max_delay
         self.cache_manager = cache_manager
         self.checkpoint_manager = checkpoint_manager
+        self.on_node_start = on_node_start
+        self.on_node_end = on_node_end
 
     async def execute(self, *, resume_id: str | None = None, **inputs: Any) -> Any:
         """Run the pipeline asynchronously.
@@ -106,6 +121,7 @@ class AsyncExecutor:
 
         success = True
         error_message: str | None = None
+        skipped_nodes: set[str] = set()
 
         try:
             for layer_idx, layer in enumerate(layers):
@@ -123,6 +139,7 @@ class AsyncExecutor:
                         ctx=ctx,
                         execution_id=execution_id,
                         completed_nodes=completed_nodes,
+                        skipped_nodes=skipped_nodes,
                     )
                     for name in layer
                 ]
@@ -134,9 +151,22 @@ class AsyncExecutor:
                     if info.status == NodeStatus.FAILED:
                         raise ExecutionError(name, info.error or "unknown error")
 
+                # --- Branch selection for this layer ---
+                for name in layer:
+                    if name in self.pipeline._branches and name not in skipped_nodes:
+                        branch = self.pipeline._branches[name]
+                        output = ctx.get_output(name)
+                        selected = _select_branch(output, branch)
+                        for bn in branch.nodes:
+                            if bn.name != selected:
+                                skipped_nodes.add(bn.name)
+
             if len(leaves) == 1:
                 return ctx.get_output(leaves[0])
-            return {leaf: ctx.get_output(leaf) for leaf in leaves}
+            active_leaves = [lf for lf in leaves if lf not in skipped_nodes]
+            if len(active_leaves) == 1:
+                return ctx.get_output(active_leaves[0])
+            return {leaf: ctx.get_output(leaf) for leaf in active_leaves}
 
         except ExecutionError:
             success = False
@@ -164,6 +194,7 @@ class AsyncExecutor:
         ctx: ExecutionContext,
         execution_id: str = "",
         completed_nodes: set[str] | None = None,
+        skipped_nodes: set[str] | None = None,
     ) -> None:
         """Execute a single node with retry, timeout, and cache support.
 
@@ -174,11 +205,18 @@ class AsyncExecutor:
             ctx: The execution context.
             execution_id: The execution ID for checkpointing.
             completed_nodes: Set of already-completed node names (for resume).
+            skipped_nodes: Set of nodes to skip (branch selection).
         """
         node_obj = self.pipeline.nodes[node_name]
         info = ctx.get_node_info(node_name)
         ckpt = self.checkpoint_manager
         pipeline_id = self.pipeline.name or "unnamed"
+
+        # --- Branch: skip unselected branch nodes ---
+        if skipped_nodes and node_name in skipped_nodes:
+            info.mark_skipped()
+            logger.debug("Node %s skipped (branch not selected).", node_name)
+            return
 
         # --- Checkpoint: skip already completed ---
         if completed_nodes and node_name in completed_nodes:
@@ -212,6 +250,15 @@ class AsyncExecutor:
                 info.mark_skipped()
                 logger.debug("Node %s cache HIT (hash=%s).", node_name, input_hash[:12])
                 return
+
+        # --- Hook: on_node_start ---
+        if self.on_node_start is not None:
+            try:
+                _rv = self.on_node_start(node_name, ctx)
+                if _inspect.isawaitable(_rv):
+                    await _rv
+            except Exception:
+                logger.warning("on_node_start hook raised for node %s.", node_name)
 
         # --- Execute with retry ---
         for attempt in range(1, max_attempts + 1):
@@ -258,6 +305,15 @@ class AsyncExecutor:
                     except Exception:
                         logger.warning("Node %s cache write failed, continuing.", node_name)
 
+                # --- Hook: on_node_end (success) ---
+                if self.on_node_end is not None:
+                    try:
+                        _rv = self.on_node_end(node_name, ctx)
+                        if _inspect.isawaitable(_rv):
+                            await _rv
+                    except Exception:
+                        logger.warning("on_node_end hook raised for node %s.", node_name)
+
                 return
 
             except TimeoutError:
@@ -292,14 +348,36 @@ class AsyncExecutor:
                 retry_count=info.retry_count,
             )
 
+        # --- Hook: on_node_end (after all retries exhausted) ---
+        if self.on_node_end is not None:
+            try:
+                _rv = self.on_node_end(node_name, ctx)
+                if _inspect.isawaitable(_rv):
+                    await _rv
+            except Exception:
+                logger.warning("on_node_end hook raised for node %s.", node_name)
+
     @staticmethod
     async def _run_callable(node_obj: Node, *args: Any, **kwargs: Any) -> Any:
         """Run a node function, wrapping sync functions in a thread.
 
-        If the node function is a coroutine function, it is awaited
-        directly.  Otherwise it is run in the default executor via
-        ``asyncio.to_thread``.
+        Supports:
+        - Coroutine functions: awaited directly.
+        - Async generator functions: collected into a list.
+        - Generator functions: collected into a list (via thread).
+        - Regular functions: run in thread via ``asyncio.to_thread``.
         """
+        # Async generator: async def ... yield ...
+        if _inspect.isasyncgenfunction(node_obj.fn):
+            return [item async for item in node_obj.fn(*args, **kwargs)]
+
+        # Coroutine function: async def ... return ...
         if _inspect.iscoroutinefunction(node_obj.fn):
             return await node_obj.fn(*args, **kwargs)
+
+        # Sync generator: def ... yield ...
+        if _inspect.isgeneratorfunction(node_obj.fn):
+            return await asyncio.to_thread(lambda: list(node_obj.fn(*args, **kwargs)))
+
+        # Regular sync function.
         return await asyncio.to_thread(node_obj.fn, *args, **kwargs)
