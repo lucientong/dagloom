@@ -231,8 +231,7 @@ class Database:
             )
         else:
             cursor = await self.conn.execute(
-                "SELECT * FROM executions WHERE pipeline_id = ? "
-                "ORDER BY started_at DESC LIMIT 1",
+                "SELECT * FROM executions WHERE pipeline_id = ? ORDER BY started_at DESC LIMIT 1",
                 (pipeline_id,),
             )
         row = await cursor.fetchone()

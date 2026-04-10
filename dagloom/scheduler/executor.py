@@ -150,7 +150,10 @@ class AsyncExecutor:
         finally:
             if ckpt is not None:
                 await ckpt.finish_execution(
-                    execution_id, pipeline_id, success=success, error_message=error_message,
+                    execution_id,
+                    pipeline_id,
+                    success=success,
+                    error_message=error_message,
                 )
 
     async def _execute_node(
@@ -239,8 +242,12 @@ class AsyncExecutor:
                 # --- Checkpoint: save success ---
                 if ckpt is not None:
                     await ckpt.save_state(
-                        execution_id, pipeline_id, node_name, "success",
-                        input_hash=input_hash, retry_count=info.retry_count,
+                        execution_id,
+                        pipeline_id,
+                        node_name,
+                        "success",
+                        input_hash=input_hash,
+                        retry_count=info.retry_count,
                     )
 
                 # --- Cache write ---
@@ -277,8 +284,12 @@ class AsyncExecutor:
         # --- Checkpoint: save failure (all retries exhausted) ---
         if ckpt is not None and info.status == NodeStatus.FAILED:
             await ckpt.save_state(
-                execution_id, pipeline_id, node_name, "failed",
-                error_message=info.error, retry_count=info.retry_count,
+                execution_id,
+                pipeline_id,
+                node_name,
+                "failed",
+                error_message=info.error,
+                retry_count=info.retry_count,
             )
 
     @staticmethod
