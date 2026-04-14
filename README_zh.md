@@ -131,6 +131,35 @@ executor = AsyncExecutor(
 result = asyncio.run(executor.execute(x=1))
 ```
 
+### 定时调度
+
+支持 Cron 表达式或固定间隔自动运行管道：
+
+```python
+from dagloom import node, Pipeline
+
+@node
+def fetch(url: str = "https://example.com/data.csv") -> list:
+    return [1, 2, 3]
+
+@node
+def process(data: list) -> int:
+    return sum(data)
+
+# 通过 Pipeline 构造函数设置调度
+pipeline = Pipeline(name="daily_etl", schedule="0 9 * * *")
+
+# 或使用间隔简写
+pipeline = Pipeline(name="frequent_check", schedule="every 30m")
+
+# 或在构造后设置
+pipeline = fetch >> process
+pipeline.name = "my_pipeline"
+pipeline.schedule = "0 9 * * 1-5"  # 工作日每天 9 点
+```
+
+调度器随 `dagloom serve` 自动启动——调度配置持久化到 SQLite，重启后自动恢复。
+
 ### 高级特性
 
 ```python
@@ -171,7 +200,7 @@ dagloom serve
 ├─────────────────────────────────────┤
 │  FastAPI (REST API + WebSocket)     │
 ├─────────────────────────────────────┤
-│  调度器（asyncio 执行器）             │
+│  调度器（APScheduler + asyncio）      │
 ├─────────────────────────────────────┤
 │  核心（@node + Pipeline + DAG）      │
 ├─────────────────────────────────────┤
@@ -184,11 +213,11 @@ dagloom serve
 ```
 dagloom/
 ├── core/       # @node 装饰器、Pipeline 类、DAG 验证
-├── scheduler/  # asyncio 执行器、缓存、检查点
+├── scheduler/  # Cron/间隔调度器、asyncio 执行器、缓存、检查点
 ├── connectors/ # PostgreSQL、MySQL、S3、HTTP 连接器
 ├── server/     # FastAPI REST API + WebSocket
 ├── store/      # SQLite 存储层
-└── cli/        # Click CLI（serve、run、list、inspect）
+└── cli/        # Click CLI（serve、run、list、inspect、scheduler）
 ```
 
 ## 📖 核心概念
@@ -242,10 +271,12 @@ result = asyncio.run(executor.execute(url="https://..."))
 
 | 命令 | 描述 |
 |------|------|
-| `dagloom serve` | 启动 Web 服务 |
+| `dagloom serve` | 启动 Web 服务（含调度器） |
 | `dagloom run <文件>` | 执行管道文件 |
 | `dagloom list` | 列出已注册的管道 |
 | `dagloom inspect <文件>` | 查看 DAG 结构 |
+| `dagloom scheduler list` | 列出所有定时调度 |
+| `dagloom scheduler status` | 查看调度器状态 |
 | `dagloom version` | 显示版本信息 |
 
 ## 🔗 REST API
@@ -258,6 +289,11 @@ result = asyncio.run(executor.execute(url="https://..."))
 | POST | `/api/pipelines/{id}/resume` | 从检查点恢复执行 |
 | GET | `/api/pipelines/{id}/dag` | 获取 DAG 结构 |
 | PUT | `/api/pipelines/{id}/dag` | 从 UI 更新 DAG |
+| GET | `/api/schedules` | 列出所有定时调度 |
+| POST | `/api/schedules` | 创建定时调度 |
+| DELETE | `/api/schedules/{id}` | 删除定时调度 |
+| POST | `/api/schedules/{id}/pause` | 暂停调度 |
+| POST | `/api/schedules/{id}/resume` | 恢复调度 |
 
 ## 📚 连接器
 

@@ -39,7 +39,7 @@ Dagloom is a lightweight, Python-native pipeline/workflow engine designed for si
 │  │  REST API    │  │  WebSocket   │  │  Static Files  │   │
 │  └──────────────┘  └──────────────┘  └────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
-│  Scheduler (asyncio)                                        │
+│  Scheduler (APScheduler + asyncio)                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐   │
 │  │  Executor    │  │  Cache       │  │  Checkpoint    │   │
 │  └──────────────┘  └──────────────┘  └────────────────┘   │
@@ -116,22 +116,26 @@ dagloom resume              # Continues from node 3
 
 ```
 dagloom/
-├── __init__.py          # Public API: node, Pipeline
+├── __init__.py          # Public API: node, Pipeline, SchedulerService, etc.
 ├── core/
 │   ├── __init__.py
 │   ├── node.py          # @node decorator and Node class
-│   ├── pipeline.py      # Pipeline class with >> operator
+│   ├── pipeline.py      # Pipeline class with >> operator and schedule= param
 │   ├── dag.py           # DAG validation using NetworkX
 │   └── context.py       # Execution context and node status
 ├── scheduler/
 │   ├── __init__.py
 │   ├── executor.py      # AsyncExecutor for parallel execution
+│   ├── process_executor.py  # ProcessExecutor for CPU-bound nodes
+│   ├── scheduler.py     # SchedulerService (APScheduler wrapper)
+│   ├── triggers.py      # Cron/interval trigger parsing
 │   ├── cache.py         # Output caching with SHA-256 hashing
 │   └── checkpoint.py    # Resume from failure support
 ├── server/
 │   ├── __init__.py
-│   ├── app.py           # FastAPI application factory
-│   ├── api.py           # REST endpoints
+│   ├── app.py           # FastAPI application factory (starts scheduler)
+│   ├── api.py           # REST endpoints (pipelines + schedules)
+│   ├── codegen.py       # Bidirectional code ↔ DAG conversion
 │   └── ws.py            # WebSocket connection manager
 ├── store/
 │   ├── __init__.py
@@ -145,7 +149,7 @@ dagloom/
 │   └── http.py          # HTTP API connector
 └── cli/
     ├── __init__.py
-    └── main.py          # Click CLI commands
+    └── main.py          # Click CLI commands (serve, run, scheduler, etc.)
 ```
 
 ---
@@ -189,6 +193,7 @@ A **Pipeline** is a DAG (Directed Acyclic Graph) of connected nodes:
 ```python
 class Pipeline:
     name: str                           # Optional pipeline name
+    schedule: str | None                # Cron expression or interval shorthand (e.g. "0 9 * * *", "every 30m")
     _nodes: dict[str, Node]             # Node registry
     _edges: list[tuple[str, str]]       # Edge list (source, target)
     _tail_nodes: list[str]              # Current chain tails for >>
@@ -394,6 +399,52 @@ if node.timeout:
 
 ---
 
+## Built-in Scheduler
+
+### SchedulerService (`dagloom/scheduler/scheduler.py`)
+
+Wraps APScheduler's `AsyncIOScheduler` for cron and interval-based pipeline scheduling. Runs in-process with the FastAPI server.
+
+```python
+from dagloom import SchedulerService
+
+scheduler = SchedulerService(db)
+await scheduler.start()
+
+# Register a pipeline for scheduled execution
+schedule_id = await scheduler.register(
+    pipeline=my_pipeline,
+    cron_expr="0 9 * * *",       # or "every 30m"
+)
+
+# Manage schedules
+await scheduler.pause(schedule_id)
+await scheduler.resume(schedule_id)
+await scheduler.unregister(schedule_id)
+
+schedules = await scheduler.list_schedules()
+await scheduler.stop()
+```
+
+Key features:
+- **Persistence**: Schedules stored in SQLite `schedules` table — auto-restored on restart
+- **Missed-fire handling**: Configurable via APScheduler (coalesce + grace time, default: skip)
+- **Trigger parsing** (`triggers.py`): Supports 5-field cron (`"0 9 * * *"`) and interval shorthands (`"every 30m"`, `"every 2h"`, `"every 1d"`)
+- **In-process**: No separate daemon — scheduler starts/stops with `dagloom serve`
+
+### Pipeline Schedule Parameter
+
+```python
+# Via constructor
+pipeline = Pipeline(name="daily_etl", schedule="0 9 * * *")
+
+# Via attribute
+pipeline = fetch >> process
+pipeline.schedule = "every 30m"
+```
+
+---
+
 ## Storage Layer
 
 ### SQLite Schema (`dagloom/store/db.py`)
@@ -444,6 +495,26 @@ CREATE TABLE cache_entries (
     size_bytes INTEGER,
     created_at TEXT,
     PRIMARY KEY (node_id, input_hash)
+);
+
+-- Schedules (Cron/Interval)
+CREATE TABLE schedules (
+    id TEXT PRIMARY KEY,
+    pipeline_id TEXT NOT NULL,
+    cron_expr TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    last_run TEXT,
+    next_run TEXT,
+    misfire_policy TEXT DEFAULT 'skip',
+    created_at TEXT,
+    updated_at TEXT,
+    FOREIGN KEY (pipeline_id) REFERENCES pipelines(id)
+);
+
+-- Schema Versioning
+CREATE TABLE dagloom_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 ```
 
@@ -518,6 +589,11 @@ def create_app() -> FastAPI:
 | POST | `/api/pipelines/{id}/resume` | Resume from checkpoint |
 | GET | `/api/pipelines/{id}/dag` | Get DAG structure |
 | PUT | `/api/pipelines/{id}/dag` | Update DAG from UI |
+| GET | `/api/schedules` | List all schedules |
+| POST | `/api/schedules` | Create a schedule |
+| DELETE | `/api/schedules/{id}` | Delete a schedule |
+| POST | `/api/schedules/{id}/pause` | Pause a schedule |
+| POST | `/api/schedules/{id}/resume` | Resume a schedule |
 
 ### WebSocket (`dagloom/server/ws.py`)
 
@@ -545,11 +621,12 @@ Events:
 ### Planned Features
 
 1. **Distributed Execution**: Optional Redis backend for multi-worker support
-2. **Scheduling**: Cron-like triggers (daily, hourly, etc.)
+2. ~~**Scheduling**: Cron-like triggers (daily, hourly, etc.)~~ ✅ Implemented in v0.4.0
 3. **Secrets Management**: Secure credential injection
 4. **Plugins**: Custom node types (Docker, Kubernetes jobs)
 5. **Lineage Tracking**: Track data provenance through pipelines
 6. **Monitoring**: Prometheus metrics, Grafana dashboards
+7. **Notification Nodes**: Email / Webhook (Slack, WeChat Work, Feishu) alerts on pipeline events
 
 ### Non-Goals
 

@@ -161,6 +161,27 @@ result = asyncio.run(executor.execute(x=1))
 
 Hooks can be sync or async functions. Hook exceptions do not interrupt pipeline execution.
 
+### Pipeline Scheduling
+
+Schedule pipelines to run automatically:
+
+```python
+from dagloom import Pipeline
+
+# Cron expression (daily at 9am)
+pipeline = Pipeline(name="daily_etl", schedule="0 9 * * *")
+
+# Interval shorthand (every 30 minutes)
+pipeline = Pipeline(name="monitor", schedule="every 30m")
+
+# Set after construction
+pipeline = fetch >> process >> save
+pipeline.name = "my_pipeline"
+pipeline.schedule = "0 9 * * 1-5"  # Weekdays at 9am
+```
+
+Schedules are persisted to SQLite and auto-restored when `dagloom serve` restarts.
+
 ### Execution
 
 Pipelines execute in **topological order** — independent nodes in the same layer run in parallel.
@@ -186,7 +207,7 @@ Single Process Architecture
 ├─────────────────────────────────────┤
 │  FastAPI (REST API + WebSocket)     │
 ├─────────────────────────────────────┤
-│  Scheduler (asyncio executor)       │
+│  Scheduler (APScheduler + asyncio)  │
 ├─────────────────────────────────────┤
 │  Core (@node + Pipeline + DAG)      │
 ├─────────────────────────────────────┤
@@ -206,15 +227,22 @@ Single Process Architecture
 | POST | `/api/pipelines/{id}/resume` | Resume from checkpoint |
 | GET | `/api/pipelines/{id}/dag` | Get DAG structure |
 | PUT | `/api/pipelines/{id}/dag` | Update DAG from UI |
+| GET | `/api/schedules` | List all schedules |
+| POST | `/api/schedules` | Create a schedule |
+| DELETE | `/api/schedules/{id}` | Delete a schedule |
+| POST | `/api/schedules/{id}/pause` | Pause a schedule |
+| POST | `/api/schedules/{id}/resume` | Resume a schedule |
 
 ### CLI Commands
 
 | Command | Description |
 |---------|-------------|
-| `dagloom serve` | Start the web server |
+| `dagloom serve` | Start the web server (with scheduler) |
 | `dagloom run <file>` | Execute a pipeline |
 | `dagloom list` | List registered pipelines |
 | `dagloom inspect <file>` | Show DAG structure |
+| `dagloom scheduler list` | List all schedules |
+| `dagloom scheduler status` | Show scheduler status |
 | `dagloom version` | Show version info |
 
 ## Connectors

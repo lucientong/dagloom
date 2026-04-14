@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-14
+
+### Added
+
+- **Built-in scheduler (Cron/Interval)**: `SchedulerService` wrapping APScheduler `AsyncIOScheduler` for automatic pipeline execution on cron schedules or fixed intervals
+  - `Pipeline(schedule="0 9 * * *")` or `Pipeline(schedule="every 30m")` to set a schedule directly on a pipeline
+  - `SchedulerService` with full lifecycle: `register`, `unregister`, `pause`, `resume`, `list_schedules`
+  - Persists schedules to SQLite — auto-restores on server restart
+  - Missed-fire handling via APScheduler (coalesce + grace time)
+- **Trigger parsing module** (`dagloom/scheduler/triggers.py`): `parse_trigger()` converts cron expressions and interval shorthands into APScheduler trigger objects; `validate_expression()` for input validation; `describe_trigger()` for human-readable descriptions
+- **Schedule REST API endpoints**:
+  - `GET /api/schedules` — list all schedules
+  - `POST /api/schedules` — create a new schedule
+  - `DELETE /api/schedules/{id}` — remove a schedule
+  - `POST /api/schedules/{id}/pause` — pause a schedule
+  - `POST /api/schedules/{id}/resume` — resume a paused schedule
+- **CLI scheduler commands**: `dagloom scheduler list` and `dagloom scheduler status`
+- **Database schema additions**: `schedules` table (pipeline_id, cron_expr, enabled, last_run, next_run, misfire_policy) and `dagloom_meta` table for schema versioning
+- `SchedulerService` exported from top-level `dagloom` package
+- Scheduler auto-starts with `dagloom serve` (integrated into FastAPI lifespan)
+- 40 new tests covering trigger parsing, schedule CRUD, and SchedulerService lifecycle
+
+### Changed
+
+- `Pipeline.__init__` now accepts optional `schedule` parameter (default `None`, backward compatible)
+- `Pipeline.copy()` preserves the `schedule` attribute
+- `pyproject.toml`: added `apscheduler>=3.10,<4` to core dependencies
+
 ## [0.3.0] - 2026-04-10
 
 ### Added
@@ -76,7 +104,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/lucientong/dagloom/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lucientong/dagloom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lucientong/dagloom/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/lucientong/dagloom/compare/v0.1.0...v0.1.1

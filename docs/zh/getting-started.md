@@ -161,6 +161,27 @@ result = asyncio.run(executor.execute(x=1))
 
 钩子可以是同步函数或异步函数，异常不会中断管道执行。
 
+### 定时调度
+
+支持 Cron 表达式或固定间隔自动运行管道：
+
+```python
+from dagloom import Pipeline
+
+# Cron 表达式（每天 9 点）
+pipeline = Pipeline(name="daily_etl", schedule="0 9 * * *")
+
+# 间隔简写（每 30 分钟）
+pipeline = Pipeline(name="monitor", schedule="every 30m")
+
+# 构造后设置
+pipeline = fetch >> process >> save
+pipeline.name = "my_pipeline"
+pipeline.schedule = "0 9 * * 1-5"  # 工作日每天 9 点
+```
+
+调度配置持久化到 SQLite，`dagloom serve` 重启后自动恢复。
+
 ### 执行
 
 管道按 **拓扑排序** 执行 — 同层独立节点自动并行运行。
@@ -186,7 +207,7 @@ result = asyncio.run(executor.execute(url="https://..."))
 ├─────────────────────────────────────┤
 │  FastAPI (REST API + WebSocket)     │
 ├─────────────────────────────────────┤
-│  调度器（asyncio 执行器）             │
+│  调度器（APScheduler + asyncio）      │
 ├─────────────────────────────────────┤
 │  核心（@node + Pipeline + DAG）      │
 ├─────────────────────────────────────┤
@@ -206,15 +227,22 @@ result = asyncio.run(executor.execute(url="https://..."))
 | POST | `/api/pipelines/{id}/resume` | 从检查点恢复 |
 | GET | `/api/pipelines/{id}/dag` | 获取 DAG 结构 |
 | PUT | `/api/pipelines/{id}/dag` | 从 UI 更新 DAG |
+| GET | `/api/schedules` | 列出所有定时调度 |
+| POST | `/api/schedules` | 创建定时调度 |
+| DELETE | `/api/schedules/{id}` | 删除定时调度 |
+| POST | `/api/schedules/{id}/pause` | 暂停调度 |
+| POST | `/api/schedules/{id}/resume` | 恢复调度 |
 
 ### CLI 命令
 
 | 命令 | 描述 |
 |------|------|
-| `dagloom serve` | 启动 Web 服务 |
+| `dagloom serve` | 启动 Web 服务（含调度器） |
 | `dagloom run <文件>` | 执行管道 |
 | `dagloom list` | 列出已注册的管道 |
 | `dagloom inspect <文件>` | 查看 DAG 结构 |
+| `dagloom scheduler list` | 列出所有定时调度 |
+| `dagloom scheduler status` | 查看调度器状态 |
 | `dagloom version` | 显示版本信息 |
 
 ## 连接器

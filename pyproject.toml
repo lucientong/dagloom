@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dagloom"
-version = "0.3.0"
+version = "0.4.0"
 description = "A lightweight pipeline/workflow engine. Weave data processing nodes into DAG workflows with decorators and the >> operator."
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -42,6 +42,7 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.20.0",
     "websockets>=11.0",
+    "apscheduler>=3.10,<4",
 ]
 
 [project.optional-dependencies]

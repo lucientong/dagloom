@@ -384,6 +384,7 @@ class TestPublicApi:
             "Node",
             "NodeStatus",
             "Pipeline",
+            "SchedulerService",
             "node",
             "__version__",
         }
@@ -796,4 +797,4 @@ class TestPublicApiBranch:
     def test_version_is_030(self) -> None:
         import dagloom
 
-        assert dagloom.__version__ == "0.3.0"
+        assert dagloom.__version__ == "0.4.0"

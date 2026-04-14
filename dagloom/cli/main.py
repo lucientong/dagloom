@@ -145,6 +145,62 @@ def version() -> None:
     click.echo(f"Python {sys.version}")
 
 
+# -- Scheduler commands -------------------------------------------------------
+
+
+@cli.group()
+def scheduler() -> None:
+    """Manage the built-in pipeline scheduler."""
+
+
+@scheduler.command("list")
+def scheduler_list() -> None:
+    """List all scheduled pipelines."""
+    import asyncio
+
+    from dagloom.store.db import Database
+
+    async def _list() -> list[dict[str, Any]]:
+        db = Database()
+        await db.connect()
+        schedules = await db.list_schedules()
+        await db.close()
+        return schedules
+
+    schedules = asyncio.run(_list())
+    if not schedules:
+        click.echo("No schedules registered.")
+        return
+
+    click.echo(f"{'ID':<15} {'Pipeline':<20} {'Schedule':<20} {'Enabled':<10} {'Last Run':<25}")
+    click.echo("-" * 90)
+    for s in schedules:
+        enabled = "Yes" if s.get("enabled") else "No"
+        click.echo(
+            f"{s['id']:<15} {s['pipeline_id']:<20} {s['cron_expr']:<20} "
+            f"{enabled:<10} {s.get('last_run', 'Never'):<25}"
+        )
+
+
+@scheduler.command("status")
+def scheduler_status() -> None:
+    """Show scheduler status."""
+    import asyncio
+
+    from dagloom.store.db import Database
+
+    async def _status() -> int:
+        db = Database()
+        await db.connect()
+        schedules = await db.list_schedules()
+        await db.close()
+        return len(schedules)
+
+    count = asyncio.run(_status())
+    click.echo(f"Registered schedules: {count}")
+    click.echo("Note: The scheduler runs in-process with 'dagloom serve'.")
+
+
 # -- Helpers ------------------------------------------------------------------
 
 
