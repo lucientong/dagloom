@@ -359,9 +359,7 @@ class Database:
 
     async def get_schedule(self, schedule_id: str) -> dict[str, Any] | None:
         """Fetch a schedule by ID."""
-        cursor = await self.conn.execute(
-            "SELECT * FROM schedules WHERE id = ?", (schedule_id,)
-        )
+        cursor = await self.conn.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
         row = await cursor.fetchone()
         return self._row_to_dict(row) if row else None
 
@@ -375,9 +373,7 @@ class Database:
 
     async def list_schedules(self) -> list[dict[str, Any]]:
         """List all schedules."""
-        cursor = await self.conn.execute(
-            "SELECT * FROM schedules ORDER BY updated_at DESC"
-        )
+        cursor = await self.conn.execute("SELECT * FROM schedules ORDER BY updated_at DESC")
         rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 
