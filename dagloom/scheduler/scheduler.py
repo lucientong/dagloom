@@ -344,8 +344,7 @@ class SchedulerService:
         pipeline = self._pipelines.get(schedule_id)
         if pipeline is None:
             logger.warning(
-                "Schedule %s fired but no Pipeline object registered for %r. "
-                "Skipping execution.",
+                "Schedule %s fired but no Pipeline object registered for %r. Skipping execution.",
                 schedule_id,
                 pipeline_id,
             )
