@@ -131,6 +131,35 @@ executor = AsyncExecutor(
 result = asyncio.run(executor.execute(x=1))
 ```
 
+### Pipeline Scheduling
+
+Schedule pipelines to run automatically on cron expressions or fixed intervals:
+
+```python
+from dagloom import node, Pipeline
+
+@node
+def fetch(url: str = "https://example.com/data.csv") -> list:
+    return [1, 2, 3]
+
+@node
+def process(data: list) -> int:
+    return sum(data)
+
+# Set schedule via Pipeline constructor
+pipeline = Pipeline(name="daily_etl", schedule="0 9 * * *")
+
+# Or use interval shorthand
+pipeline = Pipeline(name="frequent_check", schedule="every 30m")
+
+# Or set after construction
+pipeline = fetch >> process
+pipeline.name = "my_pipeline"
+pipeline.schedule = "0 9 * * 1-5"  # Weekdays at 9am
+```
+
+The scheduler runs in-process with `dagloom serve` — schedules are persisted to SQLite and auto-restored on restart.
+
 ### Advanced Features
 
 ```python
@@ -171,7 +200,7 @@ Single Process Architecture
 ├─────────────────────────────────────┤
 │  FastAPI (REST API + WebSocket)     │
 ├─────────────────────────────────────┤
-│  Scheduler (asyncio executor)       │
+│  Scheduler (APScheduler + asyncio)  │
 ├─────────────────────────────────────┤
 │  Core (@node + Pipeline + DAG)      │
 ├─────────────────────────────────────┤
@@ -184,11 +213,11 @@ Single Process Architecture
 ```
 dagloom/
 ├── core/       # @node decorator, Pipeline class, DAG validation
-├── scheduler/  # asyncio executor, caching, checkpoint
+├── scheduler/  # Cron/interval scheduler, asyncio executor, caching, checkpoint
 ├── connectors/ # PostgreSQL, MySQL, S3, HTTP connectors
 ├── server/     # FastAPI REST API + WebSocket
 ├── store/      # SQLite storage layer
-└── cli/        # Click CLI (serve, run, list, inspect)
+└── cli/        # Click CLI (serve, run, list, inspect, scheduler)
 ```
 
 ## 📖 Documentation

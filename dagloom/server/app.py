@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from dagloom.scheduler.scheduler import SchedulerService
 from dagloom.server.api import router as api_router
 from dagloom.server.api import set_state, ws_manager
 from dagloom.store.db import Database
@@ -26,12 +27,20 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Manage application lifecycle: database setup and teardown."""
+    """Manage application lifecycle: database setup, scheduler, and teardown."""
     db = Database()
     await db.connect()
     set_state("db", db)
+
+    # Start the built-in scheduler.
+    scheduler = SchedulerService(db)
+    await scheduler.start()
+    set_state("scheduler", scheduler)
+
     logger.info("Dagloom server started.")
     yield
+
+    await scheduler.stop()
     await db.close()
     logger.info("Dagloom server stopped.")
 

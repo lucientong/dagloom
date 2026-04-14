@@ -69,6 +69,24 @@ CREATE TABLE IF NOT EXISTS cache_entries (
     expires_at           TEXT,
     PRIMARY KEY (node_id, input_hash)
 );
+
+CREATE TABLE IF NOT EXISTS schedules (
+    id             TEXT PRIMARY KEY,
+    pipeline_id    TEXT NOT NULL,
+    cron_expr      TEXT NOT NULL,
+    enabled        INTEGER DEFAULT 1,
+    last_run       TEXT,
+    next_run       TEXT,
+    misfire_policy TEXT DEFAULT 'skip',
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    FOREIGN KEY (pipeline_id) REFERENCES pipelines(id)
+);
+
+CREATE TABLE IF NOT EXISTS dagloom_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -300,6 +318,116 @@ class Database:
         )
         rows = await cursor.fetchall()
         return {row["node_id"] for row in rows}
+
+    # -- Schedule CRUD --------------------------------------------------------
+
+    async def save_schedule(
+        self,
+        schedule_id: str,
+        pipeline_id: str,
+        cron_expr: str,
+        enabled: bool = True,
+        misfire_policy: str = "skip",
+        next_run: str | None = None,
+    ) -> None:
+        """Insert or update a schedule."""
+        now = datetime.now(UTC).isoformat()
+        await self.conn.execute(
+            """
+            INSERT INTO schedules (id, pipeline_id, cron_expr, enabled,
+                misfire_policy, next_run, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                cron_expr=excluded.cron_expr,
+                enabled=excluded.enabled,
+                misfire_policy=excluded.misfire_policy,
+                next_run=excluded.next_run,
+                updated_at=excluded.updated_at
+            """,
+            (
+                schedule_id,
+                pipeline_id,
+                cron_expr,
+                int(enabled),
+                misfire_policy,
+                next_run,
+                now,
+                now,
+            ),
+        )
+        await self.conn.commit()
+
+    async def get_schedule(self, schedule_id: str) -> dict[str, Any] | None:
+        """Fetch a schedule by ID."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM schedules WHERE id = ?", (schedule_id,)
+        )
+        row = await cursor.fetchone()
+        return self._row_to_dict(row) if row else None
+
+    async def get_schedule_by_pipeline(self, pipeline_id: str) -> dict[str, Any] | None:
+        """Fetch the schedule for a pipeline."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM schedules WHERE pipeline_id = ? LIMIT 1", (pipeline_id,)
+        )
+        row = await cursor.fetchone()
+        return self._row_to_dict(row) if row else None
+
+    async def list_schedules(self) -> list[dict[str, Any]]:
+        """List all schedules."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM schedules ORDER BY updated_at DESC"
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def delete_schedule(self, schedule_id: str) -> None:
+        """Delete a schedule."""
+        await self.conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+        await self.conn.commit()
+
+    async def update_schedule_last_run(
+        self,
+        schedule_id: str,
+        last_run: str,
+        next_run: str | None = None,
+    ) -> None:
+        """Update the last_run and next_run timestamps for a schedule."""
+        now = datetime.now(UTC).isoformat()
+        await self.conn.execute(
+            """
+            UPDATE schedules
+            SET last_run = ?, next_run = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (last_run, next_run, now, schedule_id),
+        )
+        await self.conn.commit()
+
+    # -- Schema Version -------------------------------------------------------
+
+    async def get_schema_version(self) -> int:
+        """Get the current schema version (0 if not set)."""
+        try:
+            cursor = await self.conn.execute(
+                "SELECT value FROM dagloom_meta WHERE key = 'schema_version'"
+            )
+            row = await cursor.fetchone()
+            return int(row["value"]) if row else 0
+        except Exception:
+            return 0
+
+    async def set_schema_version(self, version: int) -> None:
+        """Set the schema version."""
+        await self.conn.execute(
+            """
+            INSERT INTO dagloom_meta (key, value)
+            VALUES ('schema_version', ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """,
+            (str(version),),
+        )
+        await self.conn.commit()
 
     # -- Cache CRUD -----------------------------------------------------------
 

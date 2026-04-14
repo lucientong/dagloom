@@ -67,6 +67,28 @@ class DagResponse(BaseModel):
     edges: list[list[str]]
 
 
+class ScheduleRequest(BaseModel):
+    """Request body for creating/updating a schedule."""
+
+    pipeline_id: str
+    cron_expr: str
+    enabled: bool = True
+    misfire_policy: str = "skip"
+
+
+class ScheduleResponse(BaseModel):
+    """Schedule information response."""
+
+    id: str
+    pipeline_id: str
+    pipeline_name: str = ""
+    cron_expr: str
+    enabled: bool = True
+    last_run: str | None = None
+    next_run: str | None = None
+    description: str = ""
+
+
 # -- Shared state (injected by app.py lifespan) ------------------------------
 
 _state: dict[str, Any] = {}
@@ -315,4 +337,112 @@ async def update_dag(pipeline_id: str, body: DagUpdateRequest) -> dict[str, str]
         {"type": "dag_updated", "nodes": node_names, "edges": body.edges},
     )
 
+    return {"status": "ok"}
+
+
+# -- Schedule Endpoints ------------------------------------------------------
+
+
+@router.get("/schedules", response_model=list[ScheduleResponse])
+async def list_schedules() -> list[dict[str, Any]]:
+    """List all registered schedules."""
+    scheduler = get_state("scheduler")
+    if scheduler is None:
+        return []
+    schedules = await scheduler.list_schedules()
+    return [s.to_dict() for s in schedules]
+
+
+@router.post("/schedules", response_model=ScheduleResponse)
+async def create_schedule(body: ScheduleRequest) -> dict[str, Any]:
+    """Create a new schedule for a pipeline."""
+    from dagloom.scheduler.triggers import validate_expression
+
+    scheduler = get_state("scheduler")
+    if scheduler is None:
+        raise HTTPException(status_code=500, detail="Scheduler not initialized.")
+
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+
+    # Validate cron expression.
+    if not validate_expression(body.cron_expr):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid schedule expression: {body.cron_expr!r}",
+        )
+
+    # Verify pipeline exists.
+    pipeline = await db.get_pipeline(body.pipeline_id)
+    if pipeline is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Pipeline {body.pipeline_id!r} not found.",
+        )
+
+    # Get the Pipeline object if registered.
+    registered_pipelines: dict[str, Any] = get_state("pipelines") or {}
+    pipe_obj = registered_pipelines.get(body.pipeline_id)
+
+    if pipe_obj is not None:
+        schedule_id = await scheduler.register(
+            pipeline=pipe_obj,
+            cron_expr=body.cron_expr,
+            pipeline_id=body.pipeline_id,
+            enabled=body.enabled,
+            misfire_policy=body.misfire_policy,
+        )
+    else:
+        # Register without pipeline object (will need to be set later).
+        schedule_id = await scheduler.register(
+            pipeline=None,
+            cron_expr=body.cron_expr,
+            pipeline_id=body.pipeline_id,
+            enabled=body.enabled,
+            misfire_policy=body.misfire_policy,
+        )
+
+    from dagloom.scheduler.triggers import describe_trigger
+
+    return {
+        "id": schedule_id,
+        "pipeline_id": body.pipeline_id,
+        "pipeline_name": pipeline.get("name", ""),
+        "cron_expr": body.cron_expr,
+        "enabled": body.enabled,
+        "description": describe_trigger(body.cron_expr),
+    }
+
+
+@router.delete("/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str) -> dict[str, str]:
+    """Delete a schedule."""
+    scheduler = get_state("scheduler")
+    if scheduler is None:
+        raise HTTPException(status_code=500, detail="Scheduler not initialized.")
+
+    await scheduler.unregister(schedule_id)
+    return {"status": "ok"}
+
+
+@router.post("/schedules/{schedule_id}/pause")
+async def pause_schedule(schedule_id: str) -> dict[str, str]:
+    """Pause a schedule."""
+    scheduler = get_state("scheduler")
+    if scheduler is None:
+        raise HTTPException(status_code=500, detail="Scheduler not initialized.")
+
+    await scheduler.pause(schedule_id)
+    return {"status": "ok"}
+
+
+@router.post("/schedules/{schedule_id}/resume")
+async def resume_schedule(schedule_id: str) -> dict[str, str]:
+    """Resume a paused schedule."""
+    scheduler = get_state("scheduler")
+    if scheduler is None:
+        raise HTTPException(status_code=500, detail="Scheduler not initialized.")
+
+    await scheduler.resume(schedule_id)
     return {"status": "ok"}
