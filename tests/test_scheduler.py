@@ -305,9 +305,7 @@ class TestSchedulerService:
         assert not svc.running
 
     @pytest.mark.asyncio
-    async def test_register_and_list(
-        self, db: Database, sample_pipeline: Pipeline
-    ) -> None:
+    async def test_register_and_list(self, db: Database, sample_pipeline: Pipeline) -> None:
         from dagloom.scheduler.scheduler import SchedulerService
 
         svc = SchedulerService(db)
@@ -327,9 +325,7 @@ class TestSchedulerService:
         await svc.stop()
 
     @pytest.mark.asyncio
-    async def test_unregister(
-        self, db: Database, sample_pipeline: Pipeline
-    ) -> None:
+    async def test_unregister(self, db: Database, sample_pipeline: Pipeline) -> None:
         from dagloom.scheduler.scheduler import SchedulerService
 
         svc = SchedulerService(db)
@@ -347,9 +343,7 @@ class TestSchedulerService:
         await svc.stop()
 
     @pytest.mark.asyncio
-    async def test_pause_and_resume(
-        self, db: Database, sample_pipeline: Pipeline
-    ) -> None:
+    async def test_pause_and_resume(self, db: Database, sample_pipeline: Pipeline) -> None:
         from dagloom.scheduler.scheduler import SchedulerService
 
         svc = SchedulerService(db)
@@ -388,9 +382,7 @@ class TestSchedulerService:
         await svc.stop()
 
     @pytest.mark.asyncio
-    async def test_schedule_info_to_dict(
-        self, db: Database, sample_pipeline: Pipeline
-    ) -> None:
+    async def test_schedule_info_to_dict(self, db: Database, sample_pipeline: Pipeline) -> None:
         from dagloom.scheduler.scheduler import SchedulerService
 
         svc = SchedulerService(db)

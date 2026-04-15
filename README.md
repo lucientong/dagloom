@@ -160,6 +160,36 @@ pipeline.schedule = "0 9 * * 1-5"  # Weekdays at 9am
 
 The scheduler runs in-process with `dagloom serve` — schedules are persisted to SQLite and auto-restored on restart.
 
+### Notifications (Email / Webhook)
+
+Get notified when pipelines succeed or fail:
+
+```python
+from dagloom import node, Pipeline
+
+@node
+def fetch(url: str = "https://example.com") -> dict:
+    return {"data": [1, 2, 3]}
+
+@node
+def process(data: dict) -> int:
+    return sum(data["data"])
+
+pipeline = fetch >> process
+pipeline.name = "daily_etl"
+pipeline.notify_on = {
+    "failure": ["email://ops@team.com", "webhook://https://hooks.slack.com/xxx?format=slack"],
+    "success": ["webhook://https://hooks.slack.com/yyy?format=slack"],
+}
+```
+
+Supported channels:
+- **Email**: `email://recipient@example.com` — SMTP delivery via `aiosmtplib`
+- **Slack**: `webhook://https://hooks.slack.com/...?format=slack` — Block Kit formatting
+- **WeChat Work**: `webhook://https://qyapi.weixin.qq.com/...?format=wechat_work`
+- **Feishu**: `webhook://https://open.feishu.cn/...?format=feishu`
+- **Generic Webhook**: `webhook://https://your-endpoint.com/hook` — plain JSON POST
+
 ### Advanced Features
 
 ```python

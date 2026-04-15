@@ -182,6 +182,19 @@ pipeline.schedule = "0 9 * * 1-5"  # 工作日每天 9 点
 
 调度配置持久化到 SQLite，`dagloom serve` 重启后自动恢复。
 
+### 通知（Email / Webhook）
+
+管道成功或失败时自动发送通知：
+
+```python
+pipeline.notify_on = {
+    "failure": ["email://ops@team.com", "webhook://https://hooks.slack.com/xxx?format=slack"],
+    "success": ["webhook://https://hooks.slack.com/yyy?format=slack"],
+}
+```
+
+支持：Email（SMTP）、Slack（Block Kit）、企业微信、飞书、通用 Webhook。
+
 ### 执行
 
 管道按 **拓扑排序** 执行 — 同层独立节点自动并行运行。
@@ -232,6 +245,10 @@ result = asyncio.run(executor.execute(url="https://..."))
 | DELETE | `/api/schedules/{id}` | 删除定时调度 |
 | POST | `/api/schedules/{id}/pause` | 暂停调度 |
 | POST | `/api/schedules/{id}/resume` | 恢复调度 |
+| GET | `/api/notifications` | 列出通知渠道 |
+| POST | `/api/notifications` | 创建通知渠道 |
+| DELETE | `/api/notifications/{id}` | 删除通知渠道 |
+| POST | `/api/notifications/test` | 发送测试通知 |
 
 ### CLI 命令
 

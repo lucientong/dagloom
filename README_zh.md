@@ -160,6 +160,36 @@ pipeline.schedule = "0 9 * * 1-5"  # 工作日每天 9 点
 
 调度器随 `dagloom serve` 自动启动——调度配置持久化到 SQLite，重启后自动恢复。
 
+### 通知（Email / Webhook）
+
+管道成功或失败时自动发送通知：
+
+```python
+from dagloom import node, Pipeline
+
+@node
+def fetch(url: str = "https://example.com") -> dict:
+    return {"data": [1, 2, 3]}
+
+@node
+def process(data: dict) -> int:
+    return sum(data["data"])
+
+pipeline = fetch >> process
+pipeline.name = "daily_etl"
+pipeline.notify_on = {
+    "failure": ["email://ops@team.com", "webhook://https://hooks.slack.com/xxx?format=slack"],
+    "success": ["webhook://https://hooks.slack.com/yyy?format=slack"],
+}
+```
+
+支持的通知渠道：
+- **Email**: `email://recipient@example.com` — 通过 `aiosmtplib` 发送
+- **Slack**: `webhook://...?format=slack` — Block Kit 格式
+- **企业微信**: `webhook://...?format=wechat_work`
+- **飞书**: `webhook://...?format=feishu`
+- **通用 Webhook**: `webhook://https://your-endpoint.com/hook` — JSON POST
+
 ### 高级特性
 
 ```python
@@ -294,6 +324,10 @@ result = asyncio.run(executor.execute(url="https://..."))
 | DELETE | `/api/schedules/{id}` | 删除定时调度 |
 | POST | `/api/schedules/{id}/pause` | 暂停调度 |
 | POST | `/api/schedules/{id}/resume` | 恢复调度 |
+| GET | `/api/notifications` | 列出通知渠道 |
+| POST | `/api/notifications` | 创建通知渠道 |
+| DELETE | `/api/notifications/{id}` | 删除通知渠道 |
+| POST | `/api/notifications/test` | 发送测试通知 |
 
 ## 📚 连接器
 

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-14
+
+### Added
+
+- **Email / Webhook notification channels**: Pipeline execution results can be sent via SMTP email or HTTP webhooks (Slack Block Kit, WeChat Work, Feishu, generic JSON)
+  - `Pipeline(notify_on={"failure": ["email://ops@team.com"], "success": ["webhook://https://hooks.slack.com/...?format=slack"]})` to configure notifications
+  - `SMTPChannel` — async email delivery via `aiosmtplib`
+  - `WebhookChannel` — HTTP POST with built-in formatters for Slack, WeChat Work, Feishu, and generic JSON
+  - `ChannelRegistry` — named channel management
+  - `resolve_channel()` — create channels from URI strings (`email://...`, `webhook://...`)
+- **Notification REST API endpoints**:
+  - `GET /api/notifications` — list all notification channels
+  - `POST /api/notifications` — create a notification channel
+  - `DELETE /api/notifications/{id}` — delete a channel
+  - `POST /api/notifications/test` — send a test notification
+- **Database**: `notification_channels` table for storing channel configurations
+- **Executor integration**: `AsyncExecutor` dispatches notifications in the `finally` block — never masks execution errors; notification failures are logged as warnings
+- `httpx` added as core dependency (used by WebhookChannel)
+- `aiosmtplib>=3.0` added to dev dependencies
+- 36 new tests covering all notification components
+
+### Changed
+
+- `Pipeline.__init__` now accepts optional `notify_on` parameter (default `None`, backward compatible)
+- `Pipeline.copy()` preserves the `notify_on` attribute
+- `AsyncExecutor.execute()` now tracks execution duration and failed node name for notification events
+
 ## [0.4.0] - 2026-04-14
 
 ### Added
@@ -104,7 +131,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/lucientong/dagloom/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lucientong/dagloom/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lucientong/dagloom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lucientong/dagloom/compare/v0.1.1...v0.2.0

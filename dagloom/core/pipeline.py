@@ -49,9 +49,15 @@ class Pipeline:
         edges: List of (source, target) tuples.
     """
 
-    def __init__(self, name: str = "", schedule: str | None = None) -> None:
+    def __init__(
+        self,
+        name: str = "",
+        schedule: str | None = None,
+        notify_on: dict[str, list[str]] | None = None,
+    ) -> None:
         self.name = name
         self.schedule = schedule
+        self.notify_on = notify_on
         self._nodes: dict[str, Node] = {}
         self._edges: list[tuple[str, str]] = []
         # Track the "tail" nodes of the latest chain for >> operator.
@@ -379,7 +385,7 @@ class Pipeline:
 
     def copy(self) -> Pipeline:
         """Create a deep copy of this pipeline."""
-        new = Pipeline(name=self.name, schedule=self.schedule)
+        new = Pipeline(name=self.name, schedule=self.schedule, notify_on=self.notify_on)
         new._nodes = dict(self._nodes)
         new._edges = list(self._edges)
         new._tail_nodes = list(self._tail_nodes)

@@ -182,6 +182,19 @@ pipeline.schedule = "0 9 * * 1-5"  # Weekdays at 9am
 
 Schedules are persisted to SQLite and auto-restored when `dagloom serve` restarts.
 
+### Notifications (Email / Webhook)
+
+Get notified when pipelines succeed or fail:
+
+```python
+pipeline.notify_on = {
+    "failure": ["email://ops@team.com", "webhook://https://hooks.slack.com/xxx?format=slack"],
+    "success": ["webhook://https://hooks.slack.com/yyy?format=slack"],
+}
+```
+
+Supported: Email (SMTP), Slack (Block Kit), WeChat Work, Feishu, Generic Webhook.
+
 ### Execution
 
 Pipelines execute in **topological order** — independent nodes in the same layer run in parallel.
@@ -232,6 +245,14 @@ Single Process Architecture
 | DELETE | `/api/schedules/{id}` | Delete a schedule |
 | POST | `/api/schedules/{id}/pause` | Pause a schedule |
 | POST | `/api/schedules/{id}/resume` | Resume a schedule |
+| GET | `/api/notifications` | List notification channels |
+| POST | `/api/notifications` | Create a notification channel |
+| DELETE | `/api/notifications/{id}` | Delete a channel |
+| POST | `/api/notifications/test` | Send a test notification |
+| GET | `/api/notifications` | List notification channels |
+| POST | `/api/notifications` | Create a notification channel |
+| DELETE | `/api/notifications/{id}` | Delete a channel |
+| POST | `/api/notifications/test` | Send a test notification |
 
 ### CLI Commands
 
