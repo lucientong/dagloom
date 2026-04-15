@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-14
+
+### Added
+
+- **Cache dependency invalidation**: When a node's output changes, all downstream node caches are automatically invalidated so they re-execute on the next run
+  - `CacheManager.invalidate_node(node_id)` — bulk-remove all cache entries (and files) for a node
+  - `CacheManager.invalidate_downstream(node_id, nodes, edges)` — uses `networkx.descendants()` to find all downstream nodes and cascade-invalidate their caches
+  - `CacheManager.compute_output_hash(value)` — SHA-256 hash of node output for change detection
+  - In-memory output hash registry (`_output_hashes`) survives cache invalidation for accurate change detection
+- `Database.delete_cache_entries_for_node(node_id)` — bulk delete returning row count
+- `Database.get_cache_entries_for_node(node_id)` — fetch all cache entries for a node
+- 18 new tests covering cache invalidation (unit + integration with AsyncExecutor)
+
+### Changed
+
+- `AsyncExecutor._execute_node()` now detects output changes after cache write: compares new output hash with stored hash, triggers `invalidate_downstream()` when different
+- `CacheManager.put()` now records output hashes in the in-memory registry for subsequent change detection
+
 ## [0.6.0] - 2026-04-15
 
 ### Added
@@ -156,7 +174,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/lucientong/dagloom/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/lucientong/dagloom/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lucientong/dagloom/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lucientong/dagloom/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lucientong/dagloom/compare/v0.2.0...v0.3.0

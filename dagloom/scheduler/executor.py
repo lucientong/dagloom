@@ -366,8 +366,29 @@ class AsyncExecutor:
                 # --- Cache write ---
                 if node_obj.cache and self.cache_manager is not None and input_hash is not None:
                     try:
+                        # Detect output change → cascade-invalidate downstream.
+                        new_output_hash = self.cache_manager.compute_output_hash(result)
+                        cache_key = (node_name, input_hash)
+                        old_output_hash = self.cache_manager._output_hashes.get(cache_key)
+                        output_changed = (
+                            old_output_hash is None or new_output_hash != old_output_hash
+                        )
+
                         await self.cache_manager.put(node_name, input_hash, result)
                         logger.debug("Node %s cache STORED (hash=%s).", node_name, input_hash[:12])
+
+                        if output_changed and old_output_hash is not None:
+                            invalidated = await self.cache_manager.invalidate_downstream(
+                                node_name,
+                                self.pipeline.nodes,
+                                self.pipeline.edges,
+                            )
+                            if invalidated:
+                                logger.info(
+                                    "Node %s output changed — invalidated downstream: %s",
+                                    node_name,
+                                    ", ".join(sorted(invalidated)),
+                                )
                     except Exception:
                         logger.warning("Node %s cache write failed, continuing.", node_name)
 

@@ -214,6 +214,8 @@ pipeline = fetch_data >> clean >> save
 pipeline.run(url="https://example.com/data.csv")
 ```
 
+**缓存依赖自动失效**：当 `fetch_data` 重新执行后输出发生变化时，Dagloom 会自动失效 `clean` 和 `save` 的缓存，使它们在下次运行时重新执行。无需手动管理缓存。
+
 ### 启动 Web UI
 
 ```bash

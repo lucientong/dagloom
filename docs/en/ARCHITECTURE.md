@@ -129,7 +129,7 @@ dagloom/
 │   ├── process_executor.py  # ProcessExecutor for CPU-bound nodes
 │   ├── scheduler.py     # SchedulerService (APScheduler wrapper)
 │   ├── triggers.py      # Cron/interval trigger parsing
-│   ├── cache.py         # Output caching with SHA-256 hashing
+│   ├── cache.py         # Output caching with SHA-256 hashing and dependency invalidation
 │   └── checkpoint.py    # Resume from failure support
 ├── notifications/
 │   ├── __init__.py
@@ -551,7 +551,19 @@ CREATE TABLE cache_entries (
     created_at TEXT,
     PRIMARY KEY (node_id, input_hash)
 );
+```
 
+**Database methods for cache invalidation (v0.7.0):**
+
+```python
+# Delete all cache entries for a given node
+await db.delete_cache_entries_for_node(node_id)
+
+# Retrieve all cache entries for a given node
+entries = await db.get_cache_entries_for_node(node_id)
+```
+
+```sql
 -- Schedules (Cron/Interval)
 CREATE TABLE schedules (
     id TEXT PRIMARY KEY,
@@ -589,6 +601,30 @@ def compute_input_hash(*args, **kwargs) -> str:
 ```
 
 Cache files are stored in `.dagloom/cache/<node_id>/<hash>.pkl`.
+
+#### Cache Dependency Invalidation (v0.7.0)
+
+When a node's output changes, stale downstream caches must be invalidated. `CacheManager` provides the following methods:
+
+```python
+# Bulk-remove all cache entries for a single node
+cache_manager.invalidate_node(node_id)
+
+# Cascade-invalidate all downstream nodes using networkx.descendants()
+cache_manager.invalidate_downstream(node_id, nodes, edges)
+
+# SHA-256 output hashing for change detection
+output_hash = cache_manager.compute_output_hash(value)
+```
+
+- **`invalidate_node(node_id)`**: Deletes all cache files under `.dagloom/cache/<node_id>/` and removes corresponding rows from the `cache_entries` table via `Database.delete_cache_entries_for_node()`.
+- **`invalidate_downstream(node_id, nodes, edges)`**: Builds a `networkx.DiGraph` from the provided nodes and edges, computes all descendants of `node_id` via `networkx.descendants()`, and calls `invalidate_node()` on each.
+- **`compute_output_hash(value)`**: Serializes the value with `pickle.dumps()` and returns its SHA-256 hex digest. Used to detect whether a node's output has actually changed.
+- **`_output_hashes`**: An in-memory `dict[str, str]` registry on `CacheManager` that tracks the last-known output hash for each node. Compared after each execution to decide whether downstream invalidation is needed.
+
+**Auto-invalidation in `AsyncExecutor._execute_node()`:**
+
+After writing a cache entry, the executor computes the output hash and compares it against the previous value in `_output_hashes`. If the hash differs (i.e., the output changed), it automatically calls `invalidate_downstream()` to cascade-clear all affected caches.
 
 ### Checkpoint/Resume (`dagloom/scheduler/checkpoint.py`)
 
@@ -734,6 +770,7 @@ User edits .py in VS Code / vim → watchfiles detects change
 5. **Lineage Tracking**: Track data provenance through pipelines
 6. **Monitoring**: Prometheus metrics, Grafana dashboards
 7. ~~**Notification Nodes**: Email / Webhook (Slack, WeChat Work, Feishu) alerts on pipeline events~~ ✅ Implemented in v0.5.0
+8. ~~**Cache Dependency Invalidation**: Automatic downstream cache invalidation on output changes~~ ✅ Implemented in v0.7.0
 
 ### Non-Goals
 

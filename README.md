@@ -214,6 +214,8 @@ pipeline = fetch_data >> clean >> save
 pipeline.run(url="https://example.com/data.csv")
 ```
 
+**Cache dependency invalidation**: When `fetch_data` produces a different output on re-run, Dagloom automatically invalidates the caches for `clean` and `save` so they re-execute with fresh data. No manual cache management needed.
+
 ### Start the Web UI
 
 ```bash

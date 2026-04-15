@@ -72,6 +72,33 @@ def fetch_data(url: str) -> list[dict]:
 - **cache**: 基于输入哈希缓存输出 — 输入未变时跳过重复计算
 - **timeout**: 最大执行时间（秒）
 
+### 4. 缓存依赖自动失效（v0.7.0）
+
+使用 `@node(cache=True)` 时，Dagloom 现在会自动处理缓存的级联失效：当上游节点重新执行后产生了不同的输出，所有下游节点的缓存会被自动清除，确保下游节点在下次运行时使用最新数据重新计算。底层通过 `networkx.descendants()` 遍历 DAG 来定位所有受影响的下游节点。
+
+无需任何 API 变更，已有的 `cache=True` 节点即可自动享受此特性：
+
+```python
+@node(cache=True)
+def fetch(url: str) -> list:
+    return requests.get(url).json()
+
+@node(cache=True)
+def transform(data: list) -> list:
+    return [x * 2 for x in data]
+
+@node(cache=True)
+def save(data: list) -> str:
+    return f"Saved {len(data)} records"
+
+pipeline = fetch >> transform >> save
+
+# 第一次运行：三个节点依次执行，结果均被缓存。
+# 第二次运行：若 fetch 返回的数据与上次相同，全部命中缓存，无需重新执行。
+# 若 fetch 返回了不同的数据，transform 和 save 的缓存会被自动失效，
+# 两者将使用新数据重新执行。
+```
+
 ## 核心概念
 
 ### 节点（Node）

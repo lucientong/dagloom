@@ -72,6 +72,33 @@ def fetch_data(url: str) -> list[dict]:
 - **cache**: Cache output based on input hash — skip re-computation if inputs unchanged
 - **timeout**: Maximum execution time in seconds
 
+### 4. Cache Dependency Invalidation (v0.7.0)
+
+When using `@node(cache=True)`, Dagloom now automatically invalidates downstream caches if an upstream node produces different output on re-execution. This ensures downstream nodes always re-execute with fresh data — no manual cache-busting required. Internally, Dagloom uses `networkx.descendants()` to traverse the DAG and identify all affected downstream nodes.
+
+No API changes are needed — this works transparently with existing `cache=True` nodes:
+
+```python
+@node(cache=True)
+def fetch(url: str) -> list:
+    return requests.get(url).json()
+
+@node(cache=True)
+def transform(data: list) -> list:
+    return [x * 2 for x in data]
+
+@node(cache=True)
+def save(data: list) -> str:
+    return f"Saved {len(data)} records"
+
+pipeline = fetch >> transform >> save
+
+# First run: all three nodes execute and cache their outputs.
+# Second run: if fetch returns the same data, all caches hit — nothing re-executes.
+# If fetch returns *different* data, transform and save caches are
+# automatically invalidated and both re-execute with the new data.
+```
+
 ## Core Concepts
 
 ### Node

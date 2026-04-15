@@ -536,6 +536,38 @@ class Database:
         )
         await self.conn.commit()
 
+    async def delete_cache_entries_for_node(self, node_id: str) -> int:
+        """Delete **all** cache entries for a given node.
+
+        Args:
+            node_id: The node whose cache entries to delete.
+
+        Returns:
+            The number of deleted rows.
+        """
+        cursor = await self.conn.execute(
+            "DELETE FROM cache_entries WHERE node_id = ?",
+            (node_id,),
+        )
+        await self.conn.commit()
+        return cursor.rowcount
+
+    async def get_cache_entries_for_node(self, node_id: str) -> list[dict[str, Any]]:
+        """Fetch all cache entries for a given node.
+
+        Args:
+            node_id: The node whose cache entries to fetch.
+
+        Returns:
+            A list of cache entry dicts.
+        """
+        cursor = await self.conn.execute(
+            "SELECT * FROM cache_entries WHERE node_id = ?",
+            (node_id,),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
     # -- Helpers --------------------------------------------------------------
 
     @staticmethod
