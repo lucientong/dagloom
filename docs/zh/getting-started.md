@@ -123,6 +123,36 @@ pipeline = fetch >> heavy_compute
 
 在此示例中，`fetch` 使用默认执行器（因为它是同步函数，所以使用线程），而 `heavy_compute` 被分派到独立进程中执行——在进行大量计算时不会阻塞主事件循环。
 
+### 6. 凭据安全管理（v0.9.0）
+
+Dagloom 现已内置凭据安全管理功能。密钥使用 Fernet 对称加密进行静态加密，并通过分层查找进行解析：环境变量 → `.env` 文件 → 加密数据库。
+
+- `Encryptor` — 提供 Fernet 加密；主密钥从环境变量 `DAGLOOM_MASTER_KEY` 读取
+- `SecretStore` — 分层密钥解析：环境变量 → `.env` → 加密数据库
+- CLI：`dagloom secret set/get/list/delete`
+- REST API：`GET /api/secrets`、`POST /api/secrets`、`DELETE /api/secrets/{name}`
+
+#### CLI 用法
+
+```bash
+# 生成主密钥并导出
+export DAGLOOM_MASTER_KEY=$(python -c "from dagloom.security import Encryptor; print(Encryptor.generate_key())")
+
+# 存储和检索密钥
+dagloom secret set DB_PASSWORD "super-secret"
+dagloom secret get DB_PASSWORD
+```
+
+#### Python 用法
+
+```python
+from dagloom.security import Encryptor, SecretStore
+
+store = SecretStore(db=db, encryptor=Encryptor())
+await store.set("API_KEY", "sk-abc123")
+value = await store.get("API_KEY")
+```
+
 ## 核心概念
 
 ### 节点（Node）
@@ -300,6 +330,12 @@ result = asyncio.run(executor.execute(url="https://..."))
 | POST | `/api/notifications` | 创建通知渠道 |
 | DELETE | `/api/notifications/{id}` | 删除通知渠道 |
 | POST | `/api/notifications/test` | 发送测试通知 |
+| GET | `/api/secrets` | 列出所有密钥 |
+| POST | `/api/secrets` | 创建或更新密钥 |
+| DELETE | `/api/secrets/{name}` | 删除密钥 |
+| GET | `/api/secrets` | 列出所有密钥 |
+| POST | `/api/secrets` | 创建或更新密钥 |
+| DELETE | `/api/secrets/{name}` | 删除密钥 |
 
 ### CLI 命令
 
@@ -311,6 +347,10 @@ result = asyncio.run(executor.execute(url="https://..."))
 | `dagloom inspect <文件>` | 查看 DAG 结构 |
 | `dagloom scheduler list` | 列出所有定时调度 |
 | `dagloom scheduler status` | 查看调度器状态 |
+| `dagloom secret set <名称> <值>` | 存储密钥 |
+| `dagloom secret get <名称>` | 检索密钥 |
+| `dagloom secret list` | 列出所有密钥名称 |
+| `dagloom secret delete <名称>` | 删除密钥 |
 | `dagloom version` | 显示版本信息 |
 
 ## 连接器

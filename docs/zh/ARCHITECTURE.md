@@ -12,6 +12,7 @@
 - [执行模型](#执行模型)
 - [存储层](#存储层)
 - [Web 服务](#web-服务)
+- [安全](#安全)
 - [未来规划](#未来规划)
 
 ---
@@ -147,6 +148,10 @@ dagloom/
 ├── store/
 │   ├── __init__.py
 │   └── db.py            # SQLite 数据库层
+├── security/
+│   ├── __init__.py
+│   ├── encryption.py    # Encryptor 类（基于 Fernet），DecryptionError，generate_key()
+│   └── secrets.py       # SecretStore，分层解析（env → .env → 加密数据库）
 ├── connectors/
 │   ├── __init__.py
 │   ├── base.py          # 抽象连接器接口
@@ -156,7 +161,7 @@ dagloom/
 │   └── http.py          # HTTP API 连接器
 └── cli/
     ├── __init__.py
-    └── main.py          # Click CLI 命令（serve、run、scheduler 等）
+    └── main.py          # Click CLI 命令（serve、run、scheduler、secret 等）
 ```
 
 ---
@@ -690,6 +695,14 @@ CREATE TABLE dagloom_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- 密钥表（v0.9.0）
+CREATE TABLE secrets (
+    key TEXT PRIMARY KEY,
+    encrypted_value BLOB NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
 ```
 
 ### 缓存机制 — `dagloom/scheduler/cache.py`
@@ -796,6 +809,9 @@ def create_app() -> FastAPI:
 | POST | `/api/notifications` | 创建通知渠道 |
 | DELETE | `/api/notifications/{id}` | 删除通知渠道 |
 | POST | `/api/notifications/test` | 发送测试通知 |
+| GET | `/api/secrets` | 列出所有密钥名称 |
+| POST | `/api/secrets` | 创建或更新密钥 |
+| DELETE | `/api/secrets/{key}` | 删除密钥 |
 
 ### WebSocket — `dagloom/server/ws.py`
 
@@ -840,13 +856,141 @@ class ConnectionManager:
 
 ---
 
+## 安全
+
+### 凭据安全管理（v0.9.0）— `dagloom/security/`
+
+Dagloom 提供内置的凭据管理功能，使管道可以安全地访问敏感值（API 密钥、数据库密码、令牌），无需在源代码中硬编码。新增依赖：`cryptography>=41`、`python-dotenv>=1.0`。
+
+### 加密 — `dagloom/security/encryption.py`
+
+`Encryptor` 类封装 `cryptography.fernet.Fernet`，提供对称加密能力：
+
+```python
+from dagloom.security.encryption import Encryptor, DecryptionError, generate_key
+
+# 生成新的主密钥（请安全存储！）
+key = Encryptor.generate_key()  # 返回 Fernet 兼容的 base64 密钥
+
+# 创建加密器 — 从 DAGLOOM_MASTER_KEY 环境变量读取主密钥
+encryptor = Encryptor()                    # 使用 os.environ["DAGLOOM_MASTER_KEY"]
+encryptor = Encryptor(master_key=key)      # 或显式传入
+
+# 加密 / 解密
+token = encryptor.encrypt("my-api-key")    # 返回 bytes
+value = encryptor.decrypt(token)           # 返回 str；失败时抛出 DecryptionError
+```
+
+- **主密钥来源**：`DAGLOOM_MASTER_KEY` 环境变量（运行时必需）
+- **加密算法**：Fernet（AES-128-CBC + HMAC-SHA256），基于 `cryptography` 库
+- **`DecryptionError`**：自定义异常，在解密失败时抛出（密钥错误、数据损坏）
+- **`generate_key()`**：静态方法，返回一个全新的 Fernet 密钥，用于初始化配置
+
+### 密钥存储 — `dagloom/security/secrets.py`
+
+`SecretStore` 提供统一的密钥获取接口，采用**分层解析**策略：
+
+```
+SecretStore.get("DB_PASSWORD")
+  ├─ 1. 环境变量：DAGLOOM_SECRET_DB_PASSWORD
+  ├─ 2. .env 文件（通过 python-dotenv 加载）：DAGLOOM_SECRET_DB_PASSWORD
+  └─ 3. 加密 SQLite 数据库：secrets 表 → Fernet 解密
+```
+
+```python
+from dagloom.security.secrets import SecretStore
+
+store = SecretStore(db, encryptor)
+
+# CRUD 操作（针对加密 SQLite 数据库）
+await store.save_secret("DB_PASSWORD", "s3cret!")       # 加密 + upsert
+value = await store.get_secret("DB_PASSWORD")            # 分层解析
+keys  = await store.list_secrets()                       # 返回 list[str]
+await store.delete_secret("DB_PASSWORD")                 # 从数据库删除
+```
+
+**解析顺序**（首次匹配即返回）：
+1. **环境变量** — `DAGLOOM_SECRET_<KEY>`（如 `DAGLOOM_SECRET_DB_PASSWORD`）
+2. **`.env` 文件** — 启动时通过 `python-dotenv` 加载一次；使用相同命名规范
+3. **加密数据库** — `secrets` 表；值在存储时使用 Fernet 加密
+
+这种分层设计允许运维人员按环境覆盖密钥，无需修改数据库（例如通过 CI/CD 环境变量注入，或在 Kubernetes 中挂载 `.env` 文件）。
+
+### 数据库表
+
+```sql
+CREATE TABLE secrets (
+    key TEXT PRIMARY KEY,
+    encrypted_value BLOB NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
+```
+
+`Database` 上的 CRUD 方法：
+- `save_secret(key, encrypted_value)` — INSERT OR REPLACE
+- `get_secret(key)` — 返回加密字节或 `None`
+- `list_secrets()` — 返回所有密钥名称（不返回值）
+- `delete_secret(key)` — 按 key 删除
+
+### REST API
+
+| 方法 | 端点 | 描述 |
+|------|------|------|
+| GET | `/api/secrets` | 列出所有密钥名称（不返回密钥值） |
+| POST | `/api/secrets` | 创建或更新密钥（`{"key": "...", "value": "..."}`） |
+| DELETE | `/api/secrets/{key}` | 删除密钥 |
+
+### CLI
+
+```bash
+dagloom secret set DB_PASSWORD          # 提示输入值（不回显）
+dagloom secret get DB_PASSWORD          # 输出解密后的值
+dagloom secret list                     # 列出所有密钥名称
+dagloom secret delete DB_PASSWORD       # 从数据库删除
+```
+
+### 安全架构流程
+
+```
+                       ┌──────────────────────┐
+                       │  DAGLOOM_MASTER_KEY   │  （环境变量）
+                       └──────────┬───────────┘
+                                  │
+                                  ▼
+┌───────────────────────────────────────────────────────────┐
+│  Encryptor (Fernet)                                       │
+│  encrypt(明文) → 密文                                      │
+│  decrypt(密文) → 明文                                      │
+└────────────────┬──────────────────────┬───────────────────┘
+                 │                      │
+          写入 (save_secret)     读取 (get_secret)
+                 │                      │
+                 ▼                      ▼
+┌───────────────────────────────────────────────────────────┐
+│  SQLite: secrets 表                                       │
+│  key TEXT PK | encrypted_value BLOB | 时间戳               │
+└───────────────────────────────────────────────────────────┘
+                                  ▲
+                                  │ 兜底（第 3 层）
+                                  │
+┌───────────────────────────────────────────────────────────┐
+│  SecretStore — 分层解析                                    │
+│  1. 环境变量  DAGLOOM_SECRET_<KEY>                         │
+│  2. .env 文件（python-dotenv）                             │
+│  3. 加密数据库                                             │
+└───────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 未来规划
 
 ### 计划中的功能
 
 1. **分布式执行**：可选的 Redis 后端，支持多 Worker
 2. ~~**定时调度**：类 Cron 的触发器（每日、每小时等）~~ ✅ 已在 v0.4.0 实现
-3. **密钥管理**：安全的凭据注入
+3. ~~**密钥管理**：安全的凭据注入~~ ✅ 已在 v0.9.0 实现
 4. **插件系统**：自定义节点类型（Docker、Kubernetes Job）
 5. **数据血缘**：跟踪数据在管道中的流转
 6. **监控**：Prometheus 指标、Grafana 仪表板

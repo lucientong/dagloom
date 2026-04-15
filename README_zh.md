@@ -243,6 +243,32 @@ executor = AsyncExecutor(pipeline)
 result = await executor.execute(url="https://example.com")
 ```
 
+### 凭证安全管理
+
+安全存储和检索密钥，支持分层解析（环境变量 → `.env` → 加密数据库）：
+
+```bash
+# CLI
+export DAGLOOM_MASTER_KEY=$(python -c "from dagloom.security import Encryptor; print(Encryptor.generate_key())")
+dagloom secret set API_KEY "sk-abc123"
+dagloom secret get API_KEY
+dagloom secret list
+dagloom secret delete API_KEY
+```
+
+```python
+# Python API
+from dagloom.security import Encryptor, SecretStore
+from dagloom.store.db import Database
+
+db = Database()
+await db.connect()
+store = SecretStore(db=db, encryptor=Encryptor())
+
+await store.set("API_KEY", "sk-abc123")
+value = await store.get("API_KEY")  # 依次检查环境变量 → .env → 加密数据库
+```
+
 ### 启动 Web UI
 
 ```bash

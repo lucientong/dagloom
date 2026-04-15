@@ -123,29 +123,35 @@ pipeline = fetch >> heavy_compute
 
 In this example `fetch` uses the default executor (threaded, since it is a sync function), while `heavy_compute` is offloaded to a separate process — keeping the main event loop responsive while crunching numbers.
 
-### 5. Per-Node Executor Hints (v0.8.0)
+### 6. Credential Security Management (v0.9.0)
 
-You can now control how each node is executed by passing the `executor` hint to `@node`. This lets you mix CPU-bound process isolation with async I/O in the same pipeline.
+Dagloom now includes built-in credential security management. Secrets are encrypted at rest using Fernet symmetric encryption and resolved through a layered lookup: environment variables → `.env` file → encrypted database.
 
-- `@node(executor="process")` — runs the function in a separate process (ideal for CPU-bound work)
-- `@node(executor="async")` — forces asyncio execution
-- `@node(executor="auto")` (default) — uses threads for sync functions, `await` for async functions
+- `Encryptor` — provides Fernet encryption; the master key is read from the `DAGLOOM_MASTER_KEY` environment variable
+- `SecretStore` — layered secret resolution: env vars → `.env` → encrypted DB
+- CLI: `dagloom secret set/get/list/delete`
+- REST API: `GET /api/secrets`, `POST /api/secrets`, `DELETE /api/secrets/{name}`
 
-Executor hints work with both `AsyncExecutor` and `ProcessExecutor`.
+#### CLI Usage
 
-```python
-@node
-def fetch(url: str) -> list:
-    return [1, 2, 3]
+```bash
+# Generate a master key and export it
+export DAGLOOM_MASTER_KEY=$(python -c "from dagloom.security import Encryptor; print(Encryptor.generate_key())")
 
-@node(executor="process")
-def heavy_compute(data: list) -> list:
-    return [x ** 2 for x in data]
-
-pipeline = fetch >> heavy_compute
+# Store and retrieve secrets
+dagloom secret set DB_PASSWORD "super-secret"
+dagloom secret get DB_PASSWORD
 ```
 
-In this example `fetch` uses the default executor (threaded, since it is a sync function), while `heavy_compute` is offloaded to a separate process — keeping the main event loop responsive while crunching numbers.
+#### Python Usage
+
+```python
+from dagloom.security import Encryptor, SecretStore
+
+store = SecretStore(db=db, encryptor=Encryptor())
+await store.set("API_KEY", "sk-abc123")
+value = await store.get("API_KEY")
+```
 
 ## Core Concepts
 
@@ -324,10 +330,9 @@ Single Process Architecture
 | POST | `/api/notifications` | Create a notification channel |
 | DELETE | `/api/notifications/{id}` | Delete a channel |
 | POST | `/api/notifications/test` | Send a test notification |
-| GET | `/api/notifications` | List notification channels |
-| POST | `/api/notifications` | Create a notification channel |
-| DELETE | `/api/notifications/{id}` | Delete a channel |
-| POST | `/api/notifications/test` | Send a test notification |
+| GET | `/api/secrets` | List all secrets |
+| POST | `/api/secrets` | Create or update a secret |
+| DELETE | `/api/secrets/{name}` | Delete a secret |
 
 ### CLI Commands
 
@@ -339,6 +344,14 @@ Single Process Architecture
 | `dagloom inspect <file>` | Show DAG structure |
 | `dagloom scheduler list` | List all schedules |
 | `dagloom scheduler status` | Show scheduler status |
+| `dagloom secret set <name> <value>` | Store a secret |
+| `dagloom secret get <name>` | Retrieve a secret |
+| `dagloom secret list` | List all secret names |
+| `dagloom secret delete <name>` | Delete a secret |
+| `dagloom secret set <name> <value>` | Store a secret |
+| `dagloom secret get <name>` | Retrieve a secret |
+| `dagloom secret list` | List all secret names |
+| `dagloom secret delete <name>` | Delete a secret |
 | `dagloom version` | Show version info |
 
 ## Connectors

@@ -12,6 +12,7 @@ This document provides a comprehensive overview of Dagloom's architecture, desig
 - [Execution Model](#execution-model)
 - [Storage Layer](#storage-layer)
 - [Web Server](#web-server)
+- [Security](#security)
 - [Future Roadmap](#future-roadmap)
 
 ---
@@ -147,6 +148,10 @@ dagloom/
 ├── store/
 │   ├── __init__.py
 │   └── db.py            # SQLite database layer
+├── security/
+│   ├── __init__.py
+│   ├── encryption.py    # Encryptor class (Fernet-based), DecryptionError, generate_key()
+│   └── secrets.py       # SecretStore with layered resolution (env → .env → encrypted DB)
 ├── connectors/
 │   ├── __init__.py
 │   ├── base.py          # Abstract connector interface
@@ -156,7 +161,7 @@ dagloom/
 │   └── http.py          # HTTP API connector
 └── cli/
     ├── __init__.py
-    └── main.py          # Click CLI commands (serve, run, scheduler, etc.)
+    └── main.py          # Click CLI commands (serve, run, scheduler, secret, etc.)
 ```
 
 ---
@@ -667,6 +672,14 @@ CREATE TABLE dagloom_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Secrets (v0.9.0)
+CREATE TABLE secrets (
+    key TEXT PRIMARY KEY,
+    encrypted_value BLOB NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
 ```
 
 ### Caching (`dagloom/scheduler/cache.py`)
@@ -777,6 +790,9 @@ def create_app() -> FastAPI:
 | POST | `/api/notifications` | Create a notification channel |
 | DELETE | `/api/notifications/{id}` | Delete a channel |
 | POST | `/api/notifications/test` | Send a test notification |
+| GET | `/api/secrets` | List all secret keys |
+| POST | `/api/secrets` | Create or update a secret |
+| DELETE | `/api/secrets/{key}` | Delete a secret |
 
 ### WebSocket (`dagloom/server/ws.py`)
 
@@ -843,13 +859,141 @@ User edits .py in VS Code / vim → watchfiles detects change
 
 ---
 
+## Security
+
+### Credential Security Management (v0.9.0) — `dagloom/security/`
+
+Dagloom provides built-in credential management so that pipelines can access sensitive values (API keys, database passwords, tokens) without hard-coding them in source files. New dependencies: `cryptography>=41`, `python-dotenv>=1.0`.
+
+### Encryption (`dagloom/security/encryption.py`)
+
+The `Encryptor` class wraps `cryptography.fernet.Fernet` for symmetric encryption of secret values:
+
+```python
+from dagloom.security.encryption import Encryptor, DecryptionError, generate_key
+
+# Generate a new master key (store securely!)
+key = Encryptor.generate_key()  # returns a Fernet-compatible base64 key
+
+# Create an encryptor — reads master key from DAGLOOM_MASTER_KEY env var
+encryptor = Encryptor()                    # uses os.environ["DAGLOOM_MASTER_KEY"]
+encryptor = Encryptor(master_key=key)      # or pass explicitly
+
+# Encrypt / decrypt
+token = encryptor.encrypt("my-api-key")    # returns bytes
+value = encryptor.decrypt(token)           # returns str; raises DecryptionError on failure
+```
+
+- **Master key source**: `DAGLOOM_MASTER_KEY` environment variable (required at runtime)
+- **Algorithm**: Fernet (AES-128-CBC + HMAC-SHA256), via the `cryptography` library
+- **`DecryptionError`**: Custom exception raised when decryption fails (invalid key, corrupted data)
+- **`generate_key()`**: Static method that returns a fresh Fernet key for initial setup
+
+### Secret Store (`dagloom/security/secrets.py`)
+
+`SecretStore` provides a unified interface for secret retrieval with **layered resolution**:
+
+```
+SecretStore.get("DB_PASSWORD")
+  ├─ 1. Environment variable: DAGLOOM_SECRET_DB_PASSWORD
+  ├─ 2. .env file (loaded via python-dotenv): DAGLOOM_SECRET_DB_PASSWORD
+  └─ 3. Encrypted SQLite DB: secrets table → Fernet-decrypt
+```
+
+```python
+from dagloom.security.secrets import SecretStore
+
+store = SecretStore(db, encryptor)
+
+# CRUD operations (against the encrypted SQLite DB)
+await store.save_secret("DB_PASSWORD", "s3cret!")       # encrypt + upsert
+value = await store.get_secret("DB_PASSWORD")            # layered resolution
+keys  = await store.list_secrets()                       # returns list[str]
+await store.delete_secret("DB_PASSWORD")                 # remove from DB
+```
+
+**Resolution order** (first match wins):
+1. **Environment variable** — `DAGLOOM_SECRET_<KEY>` (e.g. `DAGLOOM_SECRET_DB_PASSWORD`)
+2. **`.env` file** — loaded once at startup via `python-dotenv`; same naming convention
+3. **Encrypted database** — `secrets` table; values are Fernet-encrypted at rest
+
+This layered approach allows operators to override secrets per-environment without touching the database (e.g., inject via CI/CD env vars or a mounted `.env` file in Kubernetes).
+
+### Database Table
+
+```sql
+CREATE TABLE secrets (
+    key TEXT PRIMARY KEY,
+    encrypted_value BLOB NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
+```
+
+Database CRUD methods on `Database`:
+- `save_secret(key, encrypted_value)` — INSERT OR REPLACE
+- `get_secret(key)` — returns encrypted bytes or `None`
+- `list_secrets()` — returns all keys (no values)
+- `delete_secret(key)` — DELETE by key
+
+### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/secrets` | List all secret keys (values are never returned) |
+| POST | `/api/secrets` | Create or update a secret (`{"key": "...", "value": "..."}`) |
+| DELETE | `/api/secrets/{key}` | Delete a secret |
+
+### CLI
+
+```bash
+dagloom secret set DB_PASSWORD          # prompts for value (no echo)
+dagloom secret get DB_PASSWORD          # prints decrypted value
+dagloom secret list                     # lists all secret keys
+dagloom secret delete DB_PASSWORD       # removes from DB
+```
+
+### Security Architecture Flow
+
+```
+                       ┌──────────────────────┐
+                       │  DAGLOOM_MASTER_KEY   │  (env var)
+                       └──────────┬───────────┘
+                                  │
+                                  ▼
+┌───────────────────────────────────────────────────────────┐
+│  Encryptor (Fernet)                                       │
+│  encrypt(plaintext) → ciphertext                          │
+│  decrypt(ciphertext) → plaintext                          │
+└────────────────┬──────────────────────┬───────────────────┘
+                 │                      │
+          write (save_secret)    read (get_secret)
+                 │                      │
+                 ▼                      ▼
+┌───────────────────────────────────────────────────────────┐
+│  SQLite: secrets table                                    │
+│  key TEXT PK | encrypted_value BLOB | timestamps          │
+└───────────────────────────────────────────────────────────┘
+                                  ▲
+                                  │ fallback (layer 3)
+                                  │
+┌───────────────────────────────────────────────────────────┐
+│  SecretStore — layered resolution                         │
+│  1. env var  DAGLOOM_SECRET_<KEY>                         │
+│  2. .env file (python-dotenv)                             │
+│  3. encrypted DB                                          │
+└───────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Future Roadmap
 
 ### Planned Features
 
 1. **Distributed Execution**: Optional Redis backend for multi-worker support
 2. ~~**Scheduling**: Cron-like triggers (daily, hourly, etc.)~~ ✅ Implemented in v0.4.0
-3. **Secrets Management**: Secure credential injection
+3. ~~**Secrets Management**: Secure credential injection~~ ✅ Implemented in v0.9.0
 4. **Plugins**: Custom node types (Docker, Kubernetes jobs)
 5. **Lineage Tracking**: Track data provenance through pipelines
 6. **Monitoring**: Prometheus metrics, Grafana dashboards
