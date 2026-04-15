@@ -174,6 +174,7 @@ class Node:
     retry: int          # 失败重试次数（默认：0）
     cache: bool         # 是否启用输出缓存（默认：False）
     timeout: float      # 最大执行时间，秒（默认：None）
+    executor: str       # 执行器提示："auto" | "async" | "process"（默认："auto"）
     description: str    # 来自函数 docstring
 ```
 
@@ -185,7 +186,27 @@ def step_a(x): ...
 
 @node(retry=3, cache=True)     # 带参数的装饰器
 def step_b(x): ...
+
+@node(executor="process")      # CPU 密集型：分派到 ProcessPoolExecutor
+def step_c(x): ...
+
+@node(executor="async")        # 强制 asyncio 执行
+def step_d(x): ...
 ```
+
+**执行器提示**（v0.8.0）：
+
+模块级常量定义了允许的值：
+
+```python
+EXECUTOR_HINTS = frozenset({"auto", "async", "process"})
+```
+
+| 提示值 | 行为 |
+|-------|------|
+| `"auto"`（默认） | 保持现有行为——同步函数通过 `asyncio.to_thread` 运行，异步函数直接 await |
+| `"async"` | 强制 asyncio 执行（适用于实际为 I/O 密集型且可安全在事件循环中运行的同步函数） |
+| `"process"` | 将 CPU 密集型同步函数分派到 `ProcessPoolExecutor`，通过顶层可序列化辅助函数 `_run_in_process()` 实现 |
 
 关键实现细节：
 
@@ -397,6 +418,69 @@ def stream_chunks(url: str):
 | coroutine | `iscoroutinefunction()` | `await fn()` |
 | sync generator | `isgeneratorfunction()` | `asyncio.to_thread(lambda: list(fn()))` |
 | 普通函数 | 兜底 | `asyncio.to_thread(fn)` |
+
+#### 逐节点执行器分派（v0.8.0）
+
+`AsyncExecutor._run_callable()` 现在会在上述函数类型分派表**之前**检查 `node_obj.executor`，实现逐节点的执行策略控制：
+
+```python
+async def _run_callable(self, node_obj, fn, *args, **kwargs):
+    hint = node_obj.executor          # "auto" | "async" | "process"
+
+    if hint == "process":
+        return await loop.run_in_executor(
+            self._process_pool,       # ProcessPoolExecutor
+            _run_in_process,          # 顶层可序列化辅助函数
+            fn, args, kwargs,
+        )
+
+    if hint == "async":
+        return await fn(*args, **kwargs)   # 强制直接 await
+
+    # hint == "auto" → 使用上述函数类型分派表
+    ...
+```
+
+`_run_in_process(fn, args, kwargs)` 是一个**模块级**（顶层）函数，确保可被 `multiprocessing` 机制序列化（pickle）：
+
+```python
+def _run_in_process(fn, args, kwargs):
+    """顶层辅助函数——必须可被 ProcessPoolExecutor 序列化。"""
+    return fn(*args, **kwargs)
+```
+
+`AsyncExecutor` 现在接受可选的 `max_process_workers` 参数，用于控制内部 `ProcessPoolExecutor` 的大小：
+
+```python
+executor = AsyncExecutor(
+    pipeline,
+    max_process_workers=4,   # 默认为 os.cpu_count()
+)
+```
+
+### ProcessExecutor（v0.8.0 简化版）
+
+`ProcessExecutor`（`dagloom/scheduler/process_executor.py`）已被简化。它不再维护独立的并行执行逻辑，而是：
+
+1. 遍历管道中的所有节点
+2. 将所有 `executor="auto"` 的节点设置为 `executor="process"`
+3. 完全委托给 `AsyncExecutor.execute()`
+
+这意味着 `ProcessExecutor` 现在是一个轻量封装，默认强制所有节点使用进程执行，同时仍然尊重用户显式设置的 `executor="async"` 提示。
+
+```python
+class ProcessExecutor:
+    def __init__(self, pipeline, **kwargs):
+        self.pipeline = pipeline
+        self._kwargs = kwargs
+
+    async def execute(self, **inputs):
+        for node_obj in self.pipeline._nodes.values():
+            if node_obj.executor == "auto":
+                node_obj.executor = "process"
+        inner = AsyncExecutor(self.pipeline, **self._kwargs)
+        return await inner.execute(**inputs)
+```
 
 ### 执行钩子（on_node_start / on_node_end）
 
@@ -768,6 +852,7 @@ class ConnectionManager:
 6. **监控**：Prometheus 指标、Grafana 仪表板
 7. ~~**通知节点**：Email / Webhook（Slack、企微、飞书）管道事件告警~~ ✅ 已在 v0.5.0 实现
 8. ~~**缓存依赖失效**：节点输出变化时自动级联清除下游缓存~~ ✅ 已在 v0.7.0 实现
+9. ~~**逐节点执行器提示**：`@node(executor="process"|"async"|"auto")` 实现细粒度分派控制~~ ✅ 已在 v0.8.0 实现
 
 ### 非目标
 

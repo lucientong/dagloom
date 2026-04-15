@@ -16,6 +16,7 @@ import asyncio
 import inspect as _inspect
 import logging
 import time
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 
 from dagloom.core.context import ExecutionContext, NodeStatus
@@ -34,6 +35,11 @@ NodeHook = Any  # Callable[[str, ExecutionContext], None] or async variant
 _DEFAULT_RETRY_BASE_DELAY = 0.5  # seconds
 _DEFAULT_RETRY_MAX_DELAY = 30.0  # seconds
 _DEFAULT_RETRY_MULTIPLIER = 2.0
+
+
+def _run_in_process(fn: Any, args: tuple, kwargs: dict) -> Any:  # type: ignore[type-arg]
+    """Top-level picklable function for process pool execution."""
+    return fn(*args, **kwargs)
 
 
 class ExecutionError(Exception):
@@ -57,6 +63,10 @@ class AsyncExecutor:
         retry_max_delay: Maximum delay cap for retries.
         cache_manager: Optional cache manager for node output caching.
         checkpoint_manager: Optional checkpoint manager for resume support.
+        max_process_workers: Maximum worker processes for nodes with
+            ``executor="process"``. If ``None`` (default), a process pool
+            is created on-demand with the system default worker count.
+            Set to ``0`` to disable process execution (treat as ``"auto"``).
         on_node_start: Optional callback invoked before each node executes.
             Signature: ``(node_name: str, ctx: ExecutionContext) -> None``
             (may also be an async function).
@@ -73,6 +83,7 @@ class AsyncExecutor:
         retry_max_delay: float = _DEFAULT_RETRY_MAX_DELAY,
         cache_manager: CacheManager | None = None,
         checkpoint_manager: CheckpointManager | None = None,
+        max_process_workers: int | None = None,
         on_node_start: NodeHook | None = None,
         on_node_end: NodeHook | None = None,
     ) -> None:
@@ -81,8 +92,10 @@ class AsyncExecutor:
         self.retry_max_delay = retry_max_delay
         self.cache_manager = cache_manager
         self.checkpoint_manager = checkpoint_manager
+        self.max_process_workers = max_process_workers
         self.on_node_start = on_node_start
         self.on_node_end = on_node_end
+        self._process_pool: ProcessPoolExecutor | None = None
 
     async def execute(self, *, resume_id: str | None = None, **inputs: Any) -> Any:
         """Run the pipeline asynchronously.
@@ -100,6 +113,22 @@ class AsyncExecutor:
         """
         self.pipeline.validate()
 
+        # --- Process pool: create on-demand if any node needs it ---
+        needs_pool = self.max_process_workers != 0 and any(
+            n.executor == "process" for n in self.pipeline.nodes.values()
+        )
+        if needs_pool and self._process_pool is None:
+            self._process_pool = ProcessPoolExecutor(max_workers=self.max_process_workers)
+
+        try:
+            return await self._execute_dag(resume_id=resume_id, **inputs)
+        finally:
+            if self._process_pool is not None:
+                self._process_pool.shutdown(wait=False)
+                self._process_pool = None
+
+    async def _execute_dag(self, *, resume_id: str | None = None, **inputs: Any) -> Any:
+        """Internal DAG execution logic."""
         digraph = build_digraph(self.pipeline.nodes, self.pipeline.edges)
         validate_dag(digraph)
         layers = topological_layers(digraph)
@@ -444,15 +473,22 @@ class AsyncExecutor:
             except Exception:
                 logger.warning("on_node_end hook raised for node %s.", node_name)
 
-    @staticmethod
-    async def _run_callable(node_obj: Node, *args: Any, **kwargs: Any) -> Any:
-        """Run a node function, wrapping sync functions in a thread.
+    async def _run_callable(self, node_obj: Node, *args: Any, **kwargs: Any) -> Any:
+        """Run a node function according to its executor hint.
+
+        Executor hints:
+        - ``"auto"`` (default): async functions are awaited; sync functions
+          run in a thread via ``asyncio.to_thread``.
+        - ``"process"``: sync functions are dispatched to the process pool;
+          async functions are still awaited directly.
+        - ``"async"``: always awaited (same as ``"auto"`` for async funcs;
+          sync functions are run in a thread).
 
         Supports:
         - Coroutine functions: awaited directly.
         - Async generator functions: collected into a list.
-        - Generator functions: collected into a list (via thread).
-        - Regular functions: run in thread via ``asyncio.to_thread``.
+        - Generator functions: collected into a list (via thread or process).
+        - Regular functions: run in thread or process.
         """
         # Async generator: async def ... yield ...
         if _inspect.isasyncgenfunction(node_obj.fn):
@@ -461,6 +497,28 @@ class AsyncExecutor:
         # Coroutine function: async def ... return ...
         if _inspect.iscoroutinefunction(node_obj.fn):
             return await node_obj.fn(*args, **kwargs)
+
+        # --- Sync functions: dispatch based on executor hint ---
+
+        # Process execution for CPU-bound work.
+        if node_obj.executor == "process" and self._process_pool is not None:
+            loop = asyncio.get_running_loop()
+            # Generator: collect in process.
+            if _inspect.isgeneratorfunction(node_obj.fn):
+                return await loop.run_in_executor(
+                    self._process_pool,
+                    _run_in_process,
+                    lambda: list(node_obj.fn(*args, **kwargs)),
+                    (),
+                    {},
+                )
+            return await loop.run_in_executor(
+                self._process_pool,
+                _run_in_process,
+                node_obj.fn,
+                args,
+                kwargs,
+            )
 
         # Sync generator: def ... yield ...
         if _inspect.isgeneratorfunction(node_obj.fn):

@@ -216,6 +216,33 @@ pipeline.run(url="https://example.com/data.csv")
 
 **缓存依赖自动失效**：当 `fetch_data` 重新执行后输出发生变化时，Dagloom 会自动失效 `clean` 和 `save` 的缓存，使它们在下次运行时重新执行。无需手动管理缓存。
 
+### 节点级执行器提示
+
+按节点控制执行策略 — 将 CPU 密集型任务放到独立进程，I/O 密集型任务留在事件循环中：
+
+```python
+from dagloom import node, AsyncExecutor
+
+@node
+def fetch(url: str) -> list:
+    """I/O 密集型：在线程中运行（默认）。"""
+    return [1, 2, 3]
+
+@node(executor="process")
+def transform(data: list) -> list:
+    """CPU 密集型：在独立进程中运行。"""
+    return [x ** 2 for x in data]
+
+@node
+async def save(data: list) -> str:
+    """异步函数：直接在事件循环中 await。"""
+    return f"Saved {len(data)} records"
+
+pipeline = fetch >> transform >> save
+executor = AsyncExecutor(pipeline)
+result = await executor.execute(url="https://example.com")
+```
+
 ### 启动 Web UI
 
 ```bash

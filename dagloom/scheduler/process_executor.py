@@ -4,6 +4,12 @@ Uses ``concurrent.futures.ProcessPoolExecutor`` to offload heavy
 computation to separate processes, while keeping the asyncio event loop
 responsive.
 
+.. note::
+
+    For finer control, use the per-node ``executor="process"`` hint with
+    the standard ``AsyncExecutor`` instead. ``ProcessExecutor`` is a
+    convenience that forces **all** sync nodes into the process pool.
+
 Example::
 
     executor = ProcessExecutor(pipeline, max_workers=4)
@@ -12,35 +18,36 @@ Example::
 
 from __future__ import annotations
 
-import asyncio
-import inspect as _inspect
 import logging
-from concurrent.futures import ProcessPoolExecutor
-from typing import Any
 
-from dagloom.core.node import Node
 from dagloom.core.pipeline import Pipeline
-from dagloom.scheduler.executor import AsyncExecutor
+from dagloom.scheduler.cache import CacheManager
+from dagloom.scheduler.checkpoint import CheckpointManager
+from dagloom.scheduler.executor import AsyncExecutor, NodeHook
 
 logger = logging.getLogger(__name__)
 
 
-def _run_in_process(fn: Any, args: tuple, kwargs: dict) -> Any:
-    """Top-level function that can be pickled for process pool execution."""
-    return fn(*args, **kwargs)
-
-
 class ProcessExecutor(AsyncExecutor):
-    """DAG executor that uses a process pool for CPU-bound nodes.
+    """DAG executor that uses a process pool for **all** sync nodes.
 
-    Inherits from ``AsyncExecutor`` but overrides the callable runner
-    to dispatch synchronous node functions to a ``ProcessPoolExecutor``.
+    Inherits from ``AsyncExecutor`` and sets ``max_process_workers``
+    so that every synchronous node function is dispatched to a
+    ``ProcessPoolExecutor``.  Async (coroutine) nodes are still
+    awaited directly on the event loop.
+
+    For per-node control, use ``@node(executor="process")`` with the
+    standard ``AsyncExecutor`` instead.
 
     Args:
         pipeline: The pipeline to execute.
         max_workers: Maximum number of worker processes.
         retry_base_delay: Base delay for exponential backoff retries.
         retry_max_delay: Maximum retry delay cap.
+        cache_manager: Optional cache manager for node output caching.
+        checkpoint_manager: Optional checkpoint manager for resume support.
+        on_node_start: Optional pre-execution hook.
+        on_node_end: Optional post-execution hook.
     """
 
     def __init__(
@@ -50,51 +57,23 @@ class ProcessExecutor(AsyncExecutor):
         max_workers: int | None = None,
         retry_base_delay: float = 0.5,
         retry_max_delay: float = 30.0,
+        cache_manager: CacheManager | None = None,
+        checkpoint_manager: CheckpointManager | None = None,
+        on_node_start: NodeHook | None = None,
+        on_node_end: NodeHook | None = None,
     ) -> None:
+        # Mark all sync nodes as "process" so AsyncExecutor dispatches them.
+        for node_obj in pipeline.nodes.values():
+            if node_obj.executor == "auto":
+                node_obj.executor = "process"
+
         super().__init__(
             pipeline,
             retry_base_delay=retry_base_delay,
             retry_max_delay=retry_max_delay,
+            cache_manager=cache_manager,
+            checkpoint_manager=checkpoint_manager,
+            max_process_workers=max_workers,
+            on_node_start=on_node_start,
+            on_node_end=on_node_end,
         )
-        self.max_workers = max_workers
-        self._pool: ProcessPoolExecutor | None = None
-
-    async def execute(self, **inputs: Any) -> Any:
-        """Run the pipeline with a process pool for CPU-bound nodes.
-
-        The process pool is created on entry and shut down on exit.
-
-        Args:
-            **inputs: Keyword arguments passed to root nodes.
-
-        Returns:
-            The output of the leaf node(s).
-        """
-        self._pool = ProcessPoolExecutor(max_workers=self.max_workers)
-        try:
-            return await super().execute(**inputs)
-        finally:
-            self._pool.shutdown(wait=False)
-            self._pool = None
-
-    async def _run_callable(self, node_obj: Node, *args: Any, **kwargs: Any) -> Any:
-        """Run a node function in a process or thread.
-
-        - Coroutine functions are awaited directly (they use asyncio).
-        - Synchronous functions are dispatched to the process pool.
-        """
-        if _inspect.iscoroutinefunction(node_obj.fn):
-            return await node_obj.fn(*args, **kwargs)
-
-        if self._pool is not None:
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                self._pool,
-                _run_in_process,
-                node_obj.fn,
-                args,
-                kwargs,
-            )
-
-        # Fallback to thread if pool is somehow unavailable.
-        return await asyncio.to_thread(node_obj.fn, *args, **kwargs)

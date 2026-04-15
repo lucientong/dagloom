@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+# Valid executor hint values.
+EXECUTOR_HINTS = frozenset({"auto", "async", "process"})
+
 
 class Branch:
     """A group of mutually exclusive Node alternatives.
@@ -77,6 +80,9 @@ class Node:
         retry: Number of retries on failure (0 means no retry).
         cache: Whether to cache the node output based on input hash.
         timeout: Maximum execution time in seconds (None means no limit).
+        executor: Execution strategy hint — ``"auto"`` (default) uses threads
+            for sync functions and ``await`` for async; ``"process"`` dispatches
+            to a ``ProcessPoolExecutor``; ``"async"`` always uses asyncio.
         description: Human-readable description from the function docstring.
     """
 
@@ -88,13 +94,20 @@ class Node:
         retry: int = 0,
         cache: bool = False,
         timeout: float | None = None,
+        executor: str = "auto",
         description: str = "",
     ) -> None:
+        if executor not in EXECUTOR_HINTS:
+            raise ValueError(
+                f"Invalid executor hint {executor!r}. "
+                f"Choose from: {', '.join(sorted(EXECUTOR_HINTS))}"
+            )
         self.name = name
         self.fn = fn
         self.retry = retry
         self.cache = cache
         self.timeout = timeout
+        self.executor = executor
         self.description = description
         self._metadata: dict[str, Any] = {}
 
@@ -178,6 +191,8 @@ class Node:
             parts.append(f"cache={self.cache}")
         if self.timeout is not None:
             parts.append(f"timeout={self.timeout}")
+        if self.executor != "auto":
+            parts.append(f"executor={self.executor!r}")
         return ", ".join(parts) + ")"
 
     @property
@@ -208,6 +223,7 @@ def node(
     retry: int = 0,
     cache: bool = False,
     timeout: float | None = None,
+    executor: str = "auto",
     name: str | None = None,
 ) -> Callable[[F], Node]: ...
 
@@ -219,6 +235,7 @@ def node(
     retry: int = 0,
     cache: bool = False,
     timeout: float | None = None,
+    executor: str = "auto",
     name: str | None = None,
 ) -> Node | Callable[[F], Node]:
     """Decorator that turns a plain Python function into a pipeline Node.
@@ -229,7 +246,7 @@ def node(
         def step_a(x: int) -> int:
             return x + 1
 
-        @node(retry=3, cache=True)
+        @node(retry=3, cache=True, executor="process")
         def step_b(x: int) -> int:
             return x * 2
 
@@ -238,6 +255,8 @@ def node(
         retry: Number of retries on failure.
         cache: Whether to cache the output.
         timeout: Max execution time in seconds.
+        executor: Execution strategy — ``"auto"`` (default), ``"process"``
+            (runs in a separate process), or ``"async"`` (always asyncio).
         name: Override the node name (defaults to ``fn.__name__``).
 
     Returns:
@@ -255,6 +274,7 @@ def node(
             retry=retry,
             cache=cache,
             timeout=timeout,
+            executor=executor,
             description=description,
         )
         functools.update_wrapper(wrapped, func)

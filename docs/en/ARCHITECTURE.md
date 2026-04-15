@@ -174,6 +174,7 @@ class Node:
     retry: int          # Retry count on failure (default: 0)
     cache: bool         # Enable output caching (default: False)
     timeout: float      # Max execution time in seconds (default: None)
+    executor: str       # Executor hint: "auto" | "async" | "process" (default: "auto")
     description: str    # From function docstring
 ```
 
@@ -185,7 +186,27 @@ def step_a(x): ...
 
 @node(retry=3, cache=True)     # Parameterized decorator
 def step_b(x): ...
+
+@node(executor="process")      # CPU-bound: dispatched to ProcessPoolExecutor
+def step_c(x): ...
+
+@node(executor="async")        # Force asyncio execution
+def step_d(x): ...
 ```
+
+**Executor hints** (v0.8.0):
+
+A module-level constant defines the allowed values:
+
+```python
+EXECUTOR_HINTS = frozenset({"auto", "async", "process"})
+```
+
+| Hint | Behavior |
+|------|----------|
+| `"auto"` (default) | Preserves existing behavior — sync functions run in `asyncio.to_thread`, async functions are awaited directly |
+| `"async"` | Forces asyncio execution (useful for sync functions that are actually I/O-bound and safe to run in the event loop) |
+| `"process"` | Dispatches CPU-bound sync functions to a `ProcessPoolExecutor` via a top-level picklable helper `_run_in_process()` |
 
 Key implementation details:
 
@@ -374,6 +395,69 @@ In `AsyncExecutor._run_callable`:
 | coroutine | `iscoroutinefunction()` | `await fn()` |
 | sync generator | `isgeneratorfunction()` | `asyncio.to_thread(lambda: list(fn()))` |
 | regular function | fallback | `asyncio.to_thread(fn)` |
+
+#### Per-Node Executor Dispatch (v0.8.0)
+
+`AsyncExecutor._run_callable()` now checks `node_obj.executor` **before** the function-type table above. This allows per-node control over execution strategy:
+
+```python
+async def _run_callable(self, node_obj, fn, *args, **kwargs):
+    hint = node_obj.executor          # "auto" | "async" | "process"
+
+    if hint == "process":
+        return await loop.run_in_executor(
+            self._process_pool,       # ProcessPoolExecutor
+            _run_in_process,          # top-level picklable helper
+            fn, args, kwargs,
+        )
+
+    if hint == "async":
+        return await fn(*args, **kwargs)   # force direct await
+
+    # hint == "auto" → existing function-type dispatch (table above)
+    ...
+```
+
+`_run_in_process(fn, args, kwargs)` is a **module-level** (top-level) function so that it is picklable by the `multiprocessing` machinery:
+
+```python
+def _run_in_process(fn, args, kwargs):
+    """Top-level helper — must be picklable for ProcessPoolExecutor."""
+    return fn(*args, **kwargs)
+```
+
+`AsyncExecutor` now accepts an optional `max_process_workers` parameter that controls the size of the internal `ProcessPoolExecutor`:
+
+```python
+executor = AsyncExecutor(
+    pipeline,
+    max_process_workers=4,   # defaults to os.cpu_count()
+)
+```
+
+### ProcessExecutor (Simplified in v0.8.0)
+
+`ProcessExecutor` (`dagloom/scheduler/process_executor.py`) has been simplified. Instead of maintaining its own parallel-execution logic, it now:
+
+1. Iterates over all nodes in the pipeline
+2. Sets any node with `executor="auto"` to `executor="process"`
+3. Delegates entirely to `AsyncExecutor.execute()`
+
+This means `ProcessExecutor` is now a thin wrapper that forces process-based execution for all nodes by default, while still respecting any explicit `executor="async"` hints set by the user.
+
+```python
+class ProcessExecutor:
+    def __init__(self, pipeline, **kwargs):
+        self.pipeline = pipeline
+        self._kwargs = kwargs
+
+    async def execute(self, **inputs):
+        for node_obj in self.pipeline._nodes.values():
+            if node_obj.executor == "auto":
+                node_obj.executor = "process"
+        inner = AsyncExecutor(self.pipeline, **self._kwargs)
+        return await inner.execute(**inputs)
+```
 
 ### Execution Hooks (on_node_start / on_node_end)
 
@@ -771,6 +855,7 @@ User edits .py in VS Code / vim → watchfiles detects change
 6. **Monitoring**: Prometheus metrics, Grafana dashboards
 7. ~~**Notification Nodes**: Email / Webhook (Slack, WeChat Work, Feishu) alerts on pipeline events~~ ✅ Implemented in v0.5.0
 8. ~~**Cache Dependency Invalidation**: Automatic downstream cache invalidation on output changes~~ ✅ Implemented in v0.7.0
+9. ~~**Per-Node Executor Hints**: `@node(executor="process"|"async"|"auto")` for fine-grained dispatch control~~ ✅ Implemented in v0.8.0
 
 ### Non-Goals
 
