@@ -409,6 +409,61 @@ result = asyncio.run(executor.execute(url="https://..."))
 | `dagloom secret delete <名称>` | 删除密钥 |
 | `dagloom version` | 显示版本信息 |
 
+## 认证（v0.11.0）
+
+Dagloom 支持可选的请求级认证。默认情况下认证处于禁用状态（开放访问）。
+
+### 启用认证
+
+向 `dagloom serve` 传递 `--auth-type` 和 `--auth-key` 参数：
+
+```bash
+# API Key 认证 — 客户端发送 "Authorization: Bearer <key>"
+dagloom serve --auth-type API_KEY --auth-key sk-abc123
+
+# Basic 认证 — 客户端发送标准 HTTP Basic 凭据
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
+```
+
+也可以通过环境变量配置：
+
+```bash
+export DAGLOOM_AUTH_TYPE=API_KEY
+export DAGLOOM_AUTH_KEY=sk-abc123
+dagloom serve
+```
+
+### 公共路径
+
+以下路径始终无需凭据即可访问：
+
+- `/health` — 健康检查
+- `/docs` — Swagger UI
+- `/openapi.json` — OpenAPI 规范
+- `/redoc` — ReDoc UI
+
+### 调用需认证的端点
+
+```bash
+# API Key
+curl -H "Authorization: Bearer sk-abc123" http://localhost:8000/api/pipelines
+
+# Basic 认证
+curl -u admin:password http://localhost:8000/api/pipelines
+```
+
+```python
+import httpx
+
+# API Key
+resp = httpx.get("http://localhost:8000/api/pipelines",
+                 headers={"Authorization": "Bearer sk-abc123"})
+
+# Basic 认证
+resp = httpx.get("http://localhost:8000/api/pipelines",
+                 auth=("admin", "password"))
+```
+
 ## 连接器
 
 Dagloom 内置了常见数据源的连接器：

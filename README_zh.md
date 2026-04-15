@@ -1,5 +1,7 @@
 # 🧶 Dagloom
 
+[![CI](https://github.com/lucientong/dagloom/actions/workflows/ci.yml/badge.svg)](https://github.com/lucientong/dagloom/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/lucientong/dagloom/graph/badge.svg?token=YF4RTF2TBU)](https://codecov.io/gh/lucientong/dagloom)
 [![PyPI version](https://img.shields.io/pypi/v/dagloom.svg)](https://pypi.org/project/dagloom/)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/dagloom?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/dagloom)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
@@ -279,6 +281,33 @@ await store.set("API_KEY", "sk-abc123")
 value = await store.get("API_KEY")  # 依次检查环境变量 → .env → 加密数据库
 ```
 
+
+### HTTP 身份验证
+
+使用 API Key 或 Basic 认证保护 Dagloom 服务器：
+
+```bash
+# API Key 身份验证
+dagloom serve --auth-type API_KEY --auth-key sk-your-secret-key
+
+# Basic 身份验证（用户名:密码）
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:mypassword
+
+# 无身份验证（默认）
+dagloom serve
+```
+
+```python
+# 客户端：API Key 身份验证
+import httpx
+
+headers = {"Authorization": "Bearer sk-your-secret-key"}
+response = httpx.get("http://localhost:8000/api/pipelines", headers=headers)
+
+# 客户端：Basic 身份验证
+response = httpx.get("http://localhost:8000/api/pipelines", auth=("admin", "mypassword"))
+```
+
 ### 启动 Web UI
 
 ```bash
@@ -309,10 +338,11 @@ dagloom serve
 dagloom/
 ├── core/       # @node 装饰器、Pipeline 类、DAG 验证
 ├── scheduler/  # Cron/间隔调度器、asyncio 执行器、缓存、检查点
+├── security/   # 加密密钥管理、Fernet 加密、HTTP 身份验证（API Key + Basic Auth）
 ├── connectors/ # PostgreSQL、MySQL、S3、HTTP 连接器
 ├── server/     # FastAPI REST API + WebSocket
 ├── store/      # SQLite 存储层
-└── cli/        # Click CLI（serve、run、list、inspect、scheduler）
+└── cli/        # Click CLI（serve、run、list、inspect、scheduler、secret）
 ```
 
 ## 📖 核心概念
