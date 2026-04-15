@@ -141,7 +141,8 @@ dagloom/
 │   ├── __init__.py
 │   ├── app.py           # FastAPI application factory (starts scheduler)
 │   ├── api.py           # REST endpoints (pipelines + schedules)
-│   ├── codegen.py       # Bidirectional code ↔ DAG conversion
+│   ├── codegen.py       # Bidirectional code ↔ DAG conversion (round-trip fidelity)
+│   ├── watcher.py       # File watcher for live code → UI sync
 │   └── ws.py            # WebSocket connection manager
 ├── store/
 │   ├── __init__.py
@@ -674,7 +675,51 @@ Events:
 - `node_success`
 - `node_failed`
 - `execution_completed`
-- `dag_updated`
+- `dag_updated` — DAG structure changed (from file edit or UI save)
+
+### Bidirectional Sync Flow
+
+**UI → File (Save):**
+```
+Frontend drag-and-drop → PUT /api/pipelines/{id}/dag
+  ├─ Optimistic locking: compare source_hash → 409 if conflict
+  ├─ dag_to_code() → generate Python source (preserving original bodies)
+  ├─ Write .py file
+  ├─ Update watcher hash (prevent echo)
+  ├─ Save to DB
+  └─ Broadcast dag_updated via WebSocket
+```
+
+**File → UI (Watch):**
+```
+User edits .py in VS Code / vim → watchfiles detects change
+  ├─ Content hash dedup (skip if unchanged)
+  ├─ code_to_dag() → parse to DagModel (with function bodies)
+  ├─ Broadcast dag_updated via WebSocket
+  └─ Frontend re-renders DAG
+``` — DAG structure changed (from file edit or UI save)
+
+### Bidirectional Sync Flow
+
+**UI → File (Save):**
+```
+Frontend drag-and-drop → PUT /api/pipelines/{id}/dag
+  ├─ Optimistic locking: compare source_hash → 409 if conflict
+  ├─ dag_to_code() → generate Python source (preserving original bodies)
+  ├─ Write .py file
+  ├─ Update watcher hash (prevent echo)
+  ├─ Save to DB
+  └─ Broadcast dag_updated via WebSocket
+```
+
+**File → UI (Watch):**
+```
+User edits .py in VS Code / vim → watchfiles detects change
+  ├─ Content hash dedup (skip if unchanged)
+  ├─ code_to_dag() → parse to DagModel (with function bodies)
+  ├─ Broadcast dag_updated via WebSocket
+  └─ Frontend re-renders DAG
+```
 
 ---
 
