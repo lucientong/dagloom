@@ -152,6 +152,12 @@ dagloom/
 │   ├── __init__.py
 │   ├── encryption.py    # Encryptor class (Fernet-based), DecryptionError, generate_key()
 │   └── secrets.py       # SecretStore with layered resolution (env → .env → encrypted DB)
+├── demo/
+│   ├── __init__.py
+│   └── etl_pipeline.py  # create_demo_pipeline() factory — one-click demo ETL pipeline
+├── demo/
+│   ├── __init__.py
+│   └── etl_pipeline.py  # create_demo_pipeline() factory — one-click demo ETL pipeline
 ├── connectors/
 │   ├── __init__.py
 │   ├── base.py          # Abstract connector interface
@@ -161,7 +167,7 @@ dagloom/
 │   └── http.py          # HTTP API connector
 └── cli/
     ├── __init__.py
-    └── main.py          # Click CLI commands (serve, run, scheduler, secret, etc.)
+    └── main.py          # Click CLI commands (serve, run, demo, scheduler, secret, etc.)
 ```
 
 ---
@@ -1000,6 +1006,7 @@ dagloom secret delete DB_PASSWORD       # removes from DB
 7. ~~**Notification Nodes**: Email / Webhook (Slack, WeChat Work, Feishu) alerts on pipeline events~~ ✅ Implemented in v0.5.0
 8. ~~**Cache Dependency Invalidation**: Automatic downstream cache invalidation on output changes~~ ✅ Implemented in v0.7.0
 9. ~~**Per-Node Executor Hints**: `@node(executor="process"|"async"|"auto")` for fine-grained dispatch control~~ ✅ Implemented in v0.8.0
+10. ~~**PyPI Package & One-Click Demo**: `dagloom demo --run` for an instant ETL demo pipeline~~ ✅ Implemented in v0.10.0
 
 ### Non-Goals
 

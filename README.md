@@ -31,6 +31,16 @@ A lightweight pipeline/workflow engine for Python. Define nodes with decorators,
 pip install dagloom
 ```
 
+### Quick Demo
+
+```bash
+# Run the built-in demo pipeline instantly
+dagloom demo --run
+
+# Or start the web server with demo pipeline
+dagloom demo
+```
+
 ### Your First Pipeline
 
 ```python

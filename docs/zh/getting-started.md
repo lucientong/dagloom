@@ -12,6 +12,60 @@ pip install dagloom
 pip install dagloom[connectors]
 ```
 
+## 一键体验
+
+无需编写代码，即可快速体验 Dagloom：
+
+```bash
+# 运行内置的 ETL 演示管道，输出销售汇总报告
+dagloom demo --run
+```
+
+演示管道使用以下 DAG 结构：
+
+```
+generate_data >> validate >> (clean_data | flag_anomalies) >> summarize >> report
+```
+
+可自定义生成的数据记录数：
+
+```bash
+dagloom demo --records 200
+```
+
+也可以启动 Web 服务并预注册演示管道：
+
+```bash
+dagloom demo
+```
+
+## 一键体验
+
+无需编写代码，即可快速体验 Dagloom：
+
+```bash
+# 运行内置的 ETL 演示管道，输出销售汇总报告
+dagloom demo --run
+```
+
+演示管道使用以下 DAG 结构：
+
+```
+generate_data >> validate >> (clean_data | flag_anomalies) >> summarize >> report
+```
+
+可自定义生成的数据记录数：
+
+```bash
+dagloom demo --records 200
+```
+
+也可以启动 Web 服务并预注册演示管道：
+
+```bash
+dagloom demo
+```
+
 ## 快速开始
 
 ### 1. 定义你的第一个管道
@@ -343,6 +397,8 @@ result = asyncio.run(executor.execute(url="https://..."))
 |------|------|
 | `dagloom serve` | 启动 Web 服务（含调度器） |
 | `dagloom run <文件>` | 执行管道 |
+| `dagloom demo` | 启动 Web 服务并预注册演示管道 |
+| `dagloom demo --run` | 直接运行 ETL 演示管道 |
 | `dagloom list` | 列出已注册的管道 |
 | `dagloom inspect <文件>` | 查看 DAG 结构 |
 | `dagloom scheduler list` | 列出所有定时调度 |

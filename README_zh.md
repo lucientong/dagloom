@@ -31,6 +31,16 @@
 pip install dagloom
 ```
 
+### 快速体验
+
+```bash
+# 直接运行内置 Demo 管道
+dagloom demo --run
+
+# 或启动 Web 服务并注册 Demo 管道
+dagloom demo
+```
+
 ### 你的第一个管道
 
 ```python

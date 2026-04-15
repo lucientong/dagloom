@@ -12,6 +12,60 @@ For data source connectors (PostgreSQL, MySQL, S3, HTTP):
 pip install dagloom[connectors]
 ```
 
+## Quick Demo
+
+The fastest way to see Dagloom in action — no code required:
+
+```bash
+# Run the built-in demo ETL pipeline and print a sales summary report
+dagloom demo --run
+```
+
+The demo pipeline uses the following DAG:
+
+```
+generate_data >> validate >> (clean_data | flag_anomalies) >> summarize >> report
+```
+
+You can also customize the number of generated records:
+
+```bash
+dagloom demo --records 200
+```
+
+Or start the web server with the demo pipeline pre-registered:
+
+```bash
+dagloom demo
+```
+
+## Quick Demo
+
+The fastest way to see Dagloom in action — no code required:
+
+```bash
+# Run the built-in demo ETL pipeline and print a sales summary report
+dagloom demo --run
+```
+
+The demo pipeline uses the following DAG:
+
+```
+generate_data >> validate >> (clean_data | flag_anomalies) >> summarize >> report
+```
+
+You can also customize the number of generated records:
+
+```bash
+dagloom demo --records 200
+```
+
+Or start the web server with the demo pipeline pre-registered:
+
+```bash
+dagloom demo
+```
+
 ## Quick Start
 
 ### 1. Define Your First Pipeline
@@ -340,6 +394,10 @@ Single Process Architecture
 |---------|-------------|
 | `dagloom serve` | Start the web server (with scheduler) |
 | `dagloom run <file>` | Execute a pipeline |
+| `dagloom demo` | Start web server with demo pipeline registered |
+| `dagloom demo --run` | Run the demo ETL pipeline directly |
+| `dagloom demo` | Start web server with demo pipeline registered |
+| `dagloom demo --run` | Run the demo ETL pipeline directly |
 | `dagloom list` | List registered pipelines |
 | `dagloom inspect <file>` | Show DAG structure |
 | `dagloom scheduler list` | List all schedules |

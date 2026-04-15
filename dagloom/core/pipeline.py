@@ -278,13 +278,18 @@ class Pipeline:
                 if node_name in roots:
                     result = self._call_node(node, **inputs)
                 else:
-                    preds = self.predecessors(node_name)
+                    preds = [p for p in self.predecessors(node_name) if p not in skipped_nodes]
                     if len(preds) == 1:
                         result = self._call_node(node, ctx.get_output(preds[0]))
-                    else:
+                    elif len(preds) > 1:
                         # Multiple predecessors: pass dict of outputs.
                         pred_outputs = {p: ctx.get_output(p) for p in preds}
                         result = self._call_node(node, pred_outputs)
+                    else:
+                        # All predecessors were skipped — skip this node too.
+                        info.mark_skipped()
+                        skipped_nodes.add(node_name)
+                        continue
 
                 ctx.set_output(node_name, result)
                 info.mark_success()

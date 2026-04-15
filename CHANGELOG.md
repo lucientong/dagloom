@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-04-15
+
+### Added
+
+- **One-click demo pipeline**: Self-contained ETL demo exercising `@node`, `>>`, `|` (branching), caching, scheduling
+  - `dagloom demo --run` — run the demo pipeline directly and print a sales summary report
+  - `dagloom demo` — start the web server with the demo pipeline registered
+  - `dagloom demo --records 200` — customize the number of generated records
+  - Demo pipeline: `generate_data >> validate >> (clean_data | flag_anomalies) >> summarize >> report`
+  - `create_demo_pipeline()` factory function for programmatic use
+- `dagloom/demo/` package with `etl_pipeline.py` — 6 demo nodes generating, validating, cleaning/flagging, summarizing, and reporting sales data
+- 21 new tests covering all demo nodes, pipeline structure, execution, and CLI
+
+### Fixed
+
+- **Branch merge bug**: `Pipeline.run()` and `AsyncExecutor._execute_node()` now filter out skipped predecessors when resolving node inputs — previously crashed with `KeyError` when a branch-skipped node was a predecessor of a merge node
+
 ## [0.9.0] - 2026-04-15
 
 ### Added
@@ -216,7 +233,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/lucientong/dagloom/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/lucientong/dagloom/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/lucientong/dagloom/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/lucientong/dagloom/compare/v0.6.0...v0.7.0
