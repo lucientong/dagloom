@@ -21,6 +21,8 @@ import pickle
 from pathlib import Path
 from typing import Any
 
+import networkx as nx
+
 from dagloom.store.db import Database
 
 logger = logging.getLogger(__name__)
@@ -41,13 +43,13 @@ def compute_input_hash(*args: Any, **kwargs: Any) -> str:
     for arg in args:
         try:
             hasher.update(pickle.dumps(arg))
-        except (pickle.PicklingError, TypeError):
+        except (pickle.PicklingError, TypeError, AttributeError):
             hasher.update(repr(arg).encode())
     for key in sorted(kwargs.keys()):
         hasher.update(key.encode())
         try:
             hasher.update(pickle.dumps(kwargs[key]))
-        except (pickle.PicklingError, TypeError):
+        except (pickle.PicklingError, TypeError, AttributeError):
             hasher.update(repr(kwargs[key]).encode())
     return hasher.hexdigest()
 
@@ -68,6 +70,10 @@ class CacheManager:
         self.db = db
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        # In-memory registry of last-known output hashes, keyed by
+        # (node_id, input_hash).  Survives cache invalidation so we can
+        # detect whether a re-executed node produced a *different* output.
+        self._output_hashes: dict[tuple[str, str], str] = {}
 
     async def get(
         self,
@@ -130,6 +136,10 @@ class CacheManager:
             serialization_format=fmt,
             size_bytes=size_bytes,
         )
+
+        # Record the output hash for change-detection.
+        self._output_hashes[(node_id, input_hash)] = self.compute_output_hash(value)
+
         logger.debug(
             "Cached output for %s (hash=%s, size=%d bytes).",
             node_id,
@@ -151,6 +161,83 @@ class CacheManager:
             if path.exists():
                 path.unlink()
             await self.db.delete_cache_entry(node_id, input_hash)
+
+    async def invalidate_node(self, node_id: str) -> int:
+        """Remove **all** cache entries (and files) for a node.
+
+        Args:
+            node_id: The node whose entire cache to clear.
+
+        Returns:
+            The number of entries removed.
+        """
+        entries = await self.db.get_cache_entries_for_node(node_id)
+        for entry in entries:
+            path = Path(entry["output_path"])
+            if path.exists():
+                path.unlink()
+        count = await self.db.delete_cache_entries_for_node(node_id)
+        if count:
+            logger.info("Invalidated %d cache entries for node %r.", count, node_id)
+        return count
+
+    async def invalidate_downstream(
+        self,
+        node_id: str,
+        nodes: dict[str, Any],
+        edges: list[tuple[str, str]],
+    ) -> set[str]:
+        """Invalidate cache for all downstream nodes of *node_id*.
+
+        Uses ``networkx.descendants()`` on the pipeline DAG to find every
+        node reachable from *node_id*, then removes their cache entries.
+
+        Args:
+            node_id: The node whose output changed.
+            nodes: Pipeline node mapping (``{name: Node}``).
+            edges: Pipeline edge list (``[(src, tgt), ...]``).
+
+        Returns:
+            The set of downstream node IDs whose caches were invalidated.
+        """
+        from dagloom.core.dag import build_digraph
+
+        digraph = build_digraph(nodes, edges)
+        downstream: set[str] = nx.descendants(digraph, node_id)
+
+        invalidated: set[str] = set()
+        for name in downstream:
+            count = await self.invalidate_node(name)
+            if count > 0:
+                invalidated.add(name)
+
+        if invalidated:
+            logger.info(
+                "Cascade-invalidated cache for %d downstream nodes of %r: %s",
+                len(invalidated),
+                node_id,
+                ", ".join(sorted(invalidated)),
+            )
+        return invalidated
+
+    def compute_output_hash(self, value: Any) -> str:
+        """Compute a SHA-256 hash of a node output value.
+
+        Used to detect whether a node's output has changed between
+        executions, triggering downstream cache invalidation.
+
+        Args:
+            value: The node output value.
+
+        Returns:
+            A hex-encoded SHA-256 digest.
+        """
+        hasher = hashlib.sha256()
+        try:
+            hasher.update(pickle.dumps(value))
+        except (pickle.PicklingError, TypeError, AttributeError):
+            hasher.update(repr(value).encode())
+        return hasher.hexdigest()
 
     # -- Serialization helpers ------------------------------------------------
 

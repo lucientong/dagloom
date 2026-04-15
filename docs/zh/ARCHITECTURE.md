@@ -129,7 +129,7 @@ dagloom/
 │   ├── process_executor.py  # 进程执行器，支持 CPU 密集型节点
 │   ├── scheduler.py     # SchedulerService（APScheduler 封装）
 │   ├── triggers.py      # Cron/间隔触发器解析
-│   ├── cache.py         # 基于 SHA-256 哈希的输出缓存
+│   ├── cache.py         # 基于 SHA-256 哈希的输出缓存，支持依赖失效，支持依赖失效
 │   └── checkpoint.py    # 失败恢复支持
 ├── notifications/
 │   ├── __init__.py
@@ -574,7 +574,19 @@ CREATE TABLE cache_entries (
     created_at TEXT,
     PRIMARY KEY (node_id, input_hash)
 );
+```
 
+**缓存失效相关的数据库方法（v0.7.0）：**
+
+```python
+# 删除指定节点的所有缓存条目
+await db.delete_cache_entries_for_node(node_id)
+
+# 查询指定节点的所有缓存条目
+entries = await db.get_cache_entries_for_node(node_id)
+```
+
+```sql
 -- 调度表（Cron/间隔）
 CREATE TABLE schedules (
     id TEXT PRIMARY KEY,
@@ -612,6 +624,30 @@ def compute_input_hash(*args, **kwargs) -> str:
 ```
 
 缓存文件存储在 `.dagloom/cache/<node_id>/<hash>.pkl`。
+
+#### 缓存依赖失效（v0.7.0）
+
+当某个节点的输出发生变化时，下游的缓存必须被自动清除。`CacheManager` 提供以下方法：
+
+```python
+# 批量删除指定节点的所有缓存条目
+cache_manager.invalidate_node(node_id)
+
+# 利用 networkx.descendants() 级联失效所有下游节点的缓存
+cache_manager.invalidate_downstream(node_id, nodes, edges)
+
+# 计算输出的 SHA-256 哈希，用于变更检测
+output_hash = cache_manager.compute_output_hash(value)
+```
+
+- **`invalidate_node(node_id)`**：删除 `.dagloom/cache/<node_id>/` 下的所有缓存文件，并通过 `Database.delete_cache_entries_for_node()` 移除 `cache_entries` 表中的对应记录。
+- **`invalidate_downstream(node_id, nodes, edges)`**：根据传入的节点和边构建 `networkx.DiGraph`，通过 `networkx.descendants()` 计算 `node_id` 的所有下游节点，然后对每个下游节点调用 `invalidate_node()`。
+- **`compute_output_hash(value)`**：使用 `pickle.dumps()` 序列化值，返回其 SHA-256 十六进制摘要。用于判断节点输出是否实际发生了变化。
+- **`_output_hashes`**：`CacheManager` 上的内存字典（`dict[str, str]`），记录每个节点最后一次已知的输出哈希。每次执行后与新哈希比对，决定是否需要级联失效下游缓存。
+
+**`AsyncExecutor._execute_node()` 中的自动失效逻辑：**
+
+写入缓存后，执行器会计算输出哈希并与 `_output_hashes` 中的旧值比较。如果哈希不同（即输出发生了变化），则自动调用 `invalidate_downstream()` 级联清除所有受影响的下游缓存。
 
 ### 检查点/恢复 — `dagloom/scheduler/checkpoint.py`
 
@@ -731,6 +767,7 @@ class ConnectionManager:
 5. **数据血缘**：跟踪数据在管道中的流转
 6. **监控**：Prometheus 指标、Grafana 仪表板
 7. ~~**通知节点**：Email / Webhook（Slack、企微、飞书）管道事件告警~~ ✅ 已在 v0.5.0 实现
+8. ~~**缓存依赖失效**：节点输出变化时自动级联清除下游缓存~~ ✅ 已在 v0.7.0 实现
 
 ### 非目标
 
