@@ -167,7 +167,10 @@ dagloom/
 │   ├── postgres.py      # PostgreSQL 连接器
 │   ├── mysql.py         # MySQL 连接器
 │   ├── s3.py            # S3/MinIO 连接器
-│   └── http.py          # HTTP API 连接器
+│   ├── http.py          # HTTP API 连接器
+│   ├── mongodb.py       # MongoDB 连接器（motor>=3.3）
+│   ├── redis.py         # Redis 连接器（redis>=5.0）
+│   └── kafka.py         # Kafka 连接器（aiokafka>=0.9）
 └── cli/
     ├── __init__.py
     └── main.py          # Click CLI 命令（serve、run、demo、scheduler、secret 等）

@@ -12,6 +12,24 @@ For data source connectors (PostgreSQL, MySQL, S3, HTTP):
 pip install dagloom[connectors]
 ```
 
+For additional connectors (v0.12.0):
+
+```bash
+pip install dagloom[mongodb]          # MongoDB
+pip install dagloom[redis]            # Redis
+pip install dagloom[kafka]            # Kafka
+pip install dagloom[all-connectors]   # All connectors
+```
+
+For additional connectors (v0.12.0):
+
+```bash
+pip install dagloom[mongodb]          # MongoDB
+pip install dagloom[redis]            # Redis
+pip install dagloom[kafka]            # Kafka
+pip install dagloom[all-connectors]   # All connectors
+```
+
 ## Quick Demo
 
 The fastest way to see Dagloom in action — no code required:
@@ -524,7 +542,7 @@ resp = httpx.get("http://localhost:8000/api/pipelines",
 
 ## Connectors
 
-Dagloom provides built-in connectors for common data sources:
+Dagloom provides built-in connectors for common data sources. All connectors follow the `BaseConnector` pattern with async context manager support.
 
 ```python
 from dagloom.connectors import ConnectionConfig
@@ -539,4 +557,59 @@ async with PostgresConnector(config) as pg:
     rows = await pg.execute("SELECT * FROM users WHERE active = $1", True)
 ```
 
-Available connectors: **PostgreSQL**, **MySQL**, **S3/MinIO**, **HTTP API**.
+### MongoDB (v0.12.0)
+
+Requires `motor>=3.3`. Install: `pip install dagloom[mongodb]`
+
+```python
+from dagloom.connectors.mongodb import MongoDBConnector
+
+config = ConnectionConfig(host="localhost", port=27017, database="mydb")
+
+async with MongoDBConnector(config) as mongo:
+    await mongo.insert_one("users", {"name": "Alice", "age": 30})
+    user = await mongo.find_one("users", {"name": "Alice"})
+    users = await mongo.find("users", {"age": {"$gte": 18}})
+    await mongo.update_one("users", {"name": "Alice"}, {"$set": {"age": 31}})
+    await mongo.delete_one("users", {"name": "Alice"})
+    results = await mongo.aggregate("orders", [{"$group": {"_id": "$status", "count": {"$sum": 1}}}])
+```
+
+Operations: `find`, `find_one`, `insert_one`, `insert_many`, `update_one`, `update_many`, `delete_one`, `delete_many`, `aggregate`, `count`.
+
+### Redis (v0.12.0)
+
+Requires `redis>=5.0`. Install: `pip install dagloom[redis]`
+
+```python
+from dagloom.connectors.redis import RedisConnector
+
+config = ConnectionConfig(host="localhost", port=6379)
+
+async with RedisConnector(config) as r:
+    await r.set("key", "value")
+    value = await r.get("key")
+    await r.hset("user:1", "name", "Alice")
+    name = await r.hget("user:1", "name")
+    await r.delete("key")
+```
+
+Commands are mapped directly: `get`, `set`, `delete`, `hget`, `hset`, etc.
+
+### Kafka (v0.12.0)
+
+Requires `aiokafka>=0.9`. Install: `pip install dagloom[kafka]`
+
+```python
+from dagloom.connectors.kafka import KafkaConnector
+
+config = ConnectionConfig(host="localhost", port=9092)
+
+async with KafkaConnector(config) as kafka:
+    await kafka.send("my-topic", value=b'{"event": "order_created"}')
+    messages = await kafka.consume("my-topic", timeout=5.0)
+```
+
+Operations: `send` (produce), `consume` (temporary consumer).
+
+Available connectors: **PostgreSQL**, **MySQL**, **S3/MinIO**, **HTTP API**, **MongoDB**, **Redis**, **Kafka**.
