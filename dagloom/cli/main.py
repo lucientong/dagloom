@@ -43,7 +43,7 @@ def cli() -> None:
 @click.option(
     "--auth-key",
     default=None,
-    help="Authentication credentials (API key for API_KEY, or 'username:password' for BASIC_AUTH).",
+    help="Auth credentials (API key for API_KEY, or 'user:pass' for BASIC_AUTH).",
 )
 def serve(host: str, port: int, reload: bool, auth_type: str | None, auth_key: str | None) -> None:
     """Start the Dagloom web server.
@@ -54,6 +54,7 @@ def serve(host: str, port: int, reload: bool, auth_type: str | None, auth_key: s
         dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
     """
     import os
+
     import uvicorn
 
     # Set environment variables for the app factory to read.
