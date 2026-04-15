@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-04-15
+
+### Added
+
+- **Credential security management**: Encrypted secret storage with layered resolution (env vars → `.env` → Fernet-encrypted SQLite)
+  - `Encryptor` class — Fernet symmetric encryption with master key from `DAGLOOM_MASTER_KEY` env var; ephemeral key fallback for development
+  - `SecretStore` class — layered secret resolution: environment variables (`DAGLOOM_SECRET_<KEY>`) → `.env` file (via `python-dotenv`) → encrypted database
+  - `DecryptionError` exception for wrong-key / corrupted-data scenarios
+- **Database**: `secrets` table (`key`, `encrypted_value`, `created_at`, `updated_at`) with CRUD methods: `save_secret`, `get_secret`, `list_secrets` (keys only, never exposes values), `delete_secret`
+- **Secrets REST API endpoints**:
+  - `GET /api/secrets` — list secret keys (values never exposed)
+  - `POST /api/secrets` — create/update an encrypted secret
+  - `DELETE /api/secrets/{key}` — delete a secret
+- **Secrets CLI commands**: `dagloom secret set|get|list|delete`
+- `cryptography>=41` and `python-dotenv>=1.0` added to core dependencies
+- 41 new tests covering encryption, SecretStore layered resolution, DB CRUD, REST API, and CLI commands (98% patch coverage)
+
+### Changed
+
+- `pyproject.toml`: added `cryptography>=41` and `python-dotenv>=1.0` to dependencies
+
 ## [0.8.0] - 2026-04-15
 
 ### Added
@@ -195,7 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/lucientong/dagloom/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/lucientong/dagloom/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/lucientong/dagloom/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lucientong/dagloom/compare/v0.5.0...v0.6.0

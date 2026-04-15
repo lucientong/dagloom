@@ -243,6 +243,32 @@ executor = AsyncExecutor(pipeline)
 result = await executor.execute(url="https://example.com")
 ```
 
+### Credential Management
+
+Securely store and retrieve secrets with layered resolution (env vars → `.env` → encrypted DB):
+
+```bash
+# CLI
+export DAGLOOM_MASTER_KEY=$(python -c "from dagloom.security import Encryptor; print(Encryptor.generate_key())")
+dagloom secret set API_KEY "sk-abc123"
+dagloom secret get API_KEY
+dagloom secret list
+dagloom secret delete API_KEY
+```
+
+```python
+# Python API
+from dagloom.security import Encryptor, SecretStore
+from dagloom.store.db import Database
+
+db = Database()
+await db.connect()
+store = SecretStore(db=db, encryptor=Encryptor())
+
+await store.set("API_KEY", "sk-abc123")
+value = await store.get("API_KEY")  # Checks env → .env → encrypted DB
+```
+
 ### Start the Web UI
 
 ```bash
@@ -273,10 +299,11 @@ Single Process Architecture
 dagloom/
 ├── core/       # @node decorator, Pipeline class, DAG validation
 ├── scheduler/  # Cron/interval scheduler, asyncio executor, caching, checkpoint
+├── security/   # Encrypted secret store, Fernet encryption
 ├── connectors/ # PostgreSQL, MySQL, S3, HTTP connectors
 ├── server/     # FastAPI REST API + WebSocket
 ├── store/      # SQLite storage layer
-└── cli/        # Click CLI (serve, run, list, inspect, scheduler)
+└── cli/        # Click CLI (serve, run, list, inspect, scheduler, secret)
 ```
 
 ## 📖 Documentation

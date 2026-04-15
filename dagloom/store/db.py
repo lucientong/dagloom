@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS notification_channels (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS secrets (
+    key             TEXT PRIMARY KEY,
+    encrypted_value TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
 """
 
 
@@ -490,6 +497,42 @@ class Database:
     async def delete_notification_channel(self, channel_id: str) -> None:
         """Delete a notification channel."""
         await self.conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
+        await self.conn.commit()
+
+    # -- Secrets CRUD ---------------------------------------------------------
+
+    async def save_secret(self, key: str, encrypted_value: str) -> None:
+        """Insert or update an encrypted secret."""
+        now = datetime.now(UTC).isoformat()
+        await self.conn.execute(
+            """
+            INSERT INTO secrets (key, encrypted_value, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                encrypted_value=excluded.encrypted_value,
+                updated_at=excluded.updated_at
+            """,
+            (key, encrypted_value, now, now),
+        )
+        await self.conn.commit()
+
+    async def get_secret(self, key: str) -> dict[str, Any] | None:
+        """Fetch a secret by key (returns encrypted value)."""
+        cursor = await self.conn.execute("SELECT * FROM secrets WHERE key = ?", (key,))
+        row = await cursor.fetchone()
+        return self._row_to_dict(row) if row else None
+
+    async def list_secrets(self) -> list[dict[str, Any]]:
+        """List all secrets (key and timestamps only, no values)."""
+        cursor = await self.conn.execute(
+            "SELECT key, created_at, updated_at FROM secrets ORDER BY key"
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def delete_secret(self, key: str) -> None:
+        """Delete a secret by key."""
+        await self.conn.execute("DELETE FROM secrets WHERE key = ?", (key,))
         await self.conn.commit()
 
     # -- Cache CRUD -----------------------------------------------------------

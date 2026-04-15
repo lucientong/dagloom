@@ -660,3 +660,51 @@ async def test_notification(body: NotificationTestRequest) -> dict[str, str]:
         ) from exc
 
     return {"status": "ok", "message": "Test notification sent successfully."}
+
+
+# -- Secrets endpoints --------------------------------------------------------
+
+
+class SecretCreateRequest(BaseModel):
+    """Request body for creating/updating a secret."""
+
+    key: str = Field(..., description="Secret key name.")
+    value: str = Field(..., description="Plaintext secret value.")
+
+
+@router.get("/secrets")
+async def list_secrets() -> list[dict[str, Any]]:
+    """List all secret keys (values are never exposed)."""
+    db = _state["db"]
+    rows = await db.list_secrets()
+    return [
+        {"key": r["key"], "created_at": r["created_at"], "updated_at": r["updated_at"]}
+        for r in rows
+    ]
+
+
+@router.post("/secrets", status_code=201)
+async def create_secret(body: SecretCreateRequest) -> dict[str, Any]:
+    """Create or update an encrypted secret."""
+    from dagloom.security.encryption import Encryptor
+
+    encryptor = _state.get("encryptor")
+    if encryptor is None:
+        encryptor = Encryptor()
+        _state["encryptor"] = encryptor
+
+    db = _state["db"]
+    encrypted = encryptor.encrypt(body.value)
+    await db.save_secret(body.key, encrypted)
+    return {"key": body.key, "status": "created"}
+
+
+@router.delete("/secrets/{key}")
+async def delete_secret(key: str) -> dict[str, str]:
+    """Delete a secret by key."""
+    db = _state["db"]
+    existing = await db.get_secret(key)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Secret {key!r} not found.")
+    await db.delete_secret(key)
+    return {"key": key, "status": "deleted"}

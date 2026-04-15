@@ -201,6 +201,113 @@ def scheduler_status() -> None:
     click.echo("Note: The scheduler runs in-process with 'dagloom serve'.")
 
 
+# -- Secret commands ----------------------------------------------------------
+
+
+@cli.group()
+def secret() -> None:
+    """Manage encrypted secrets."""
+
+
+@secret.command("set")
+@click.argument("key")
+@click.argument("value")
+def secret_set(key: str, value: str) -> None:
+    """Store an encrypted secret."""
+    import asyncio
+
+    from dagloom.security.encryption import Encryptor
+    from dagloom.store.db import Database
+
+    async def _set() -> None:
+        db = Database()
+        await db.connect()
+        encryptor = Encryptor()
+        encrypted = encryptor.encrypt(value)
+        await db.save_secret(key, encrypted)
+        await db.close()
+
+    asyncio.run(_set())
+    click.echo(f"Secret {key!r} saved.")
+
+
+@secret.command("get")
+@click.argument("key")
+def secret_get(key: str) -> None:
+    """Retrieve a secret value."""
+    import asyncio
+
+    from dagloom.security.encryption import Encryptor
+    from dagloom.store.db import Database
+
+    async def _get() -> str | None:
+        db = Database()
+        await db.connect()
+        row = await db.get_secret(key)
+        await db.close()
+        if row is None:
+            return None
+        encryptor = Encryptor()
+        return encryptor.decrypt(row["encrypted_value"])
+
+    result = asyncio.run(_get())
+    if result is None:
+        click.echo(f"Secret {key!r} not found.", err=True)
+        sys.exit(1)
+    click.echo(result)
+
+
+@secret.command("list")
+def secret_list() -> None:
+    """List all secret key names."""
+    import asyncio
+
+    from dagloom.store.db import Database
+
+    async def _list() -> list[dict[str, Any]]:
+        db = Database()
+        await db.connect()
+        secrets = await db.list_secrets()
+        await db.close()
+        return secrets
+
+    secrets = asyncio.run(_list())
+    if not secrets:
+        click.echo("No secrets stored.")
+        return
+
+    click.echo(f"{'Key':<30} {'Created':<25} {'Updated':<25}")
+    click.echo("-" * 80)
+    for s in secrets:
+        click.echo(f"{s['key']:<30} {s.get('created_at', ''):<25} {s.get('updated_at', ''):<25}")
+
+
+@secret.command("delete")
+@click.argument("key")
+def secret_delete(key: str) -> None:
+    """Delete a secret."""
+    import asyncio
+
+    from dagloom.store.db import Database
+
+    async def _delete() -> bool:
+        db = Database()
+        await db.connect()
+        existing = await db.get_secret(key)
+        if existing is None:
+            await db.close()
+            return False
+        await db.delete_secret(key)
+        await db.close()
+        return True
+
+    deleted = asyncio.run(_delete())
+    if not deleted:
+        click.echo(f"Secret {key!r} not found.", err=True)
+        sys.exit(1)
+    click.echo(f"Secret {key!r} deleted.")
+
+
 # -- Helpers ------------------------------------------------------------------
 
 
