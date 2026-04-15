@@ -87,6 +87,16 @@ CREATE TABLE IF NOT EXISTS dagloom_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS notification_channels (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    type       TEXT NOT NULL,
+    config     TEXT DEFAULT '{}',
+    enabled    INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -423,6 +433,63 @@ class Database:
             """,
             (str(version),),
         )
+        await self.conn.commit()
+
+    # -- Notification Channel CRUD --------------------------------------------
+
+    async def save_notification_channel(
+        self,
+        channel_id: str,
+        name: str,
+        channel_type: str,
+        config: dict[str, Any] | None = None,
+        enabled: bool = True,
+    ) -> None:
+        """Insert or update a notification channel."""
+        now = datetime.now(UTC).isoformat()
+        await self.conn.execute(
+            """
+            INSERT INTO notification_channels (id, name, type, config,
+                enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                type=excluded.type,
+                config=excluded.config,
+                enabled=excluded.enabled,
+                updated_at=excluded.updated_at
+            """,
+            (
+                channel_id,
+                name,
+                channel_type,
+                json.dumps(config or {}),
+                int(enabled),
+                now,
+                now,
+            ),
+        )
+        await self.conn.commit()
+
+    async def get_notification_channel(self, channel_id: str) -> dict[str, Any] | None:
+        """Fetch a notification channel by ID."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM notification_channels WHERE id = ?", (channel_id,)
+        )
+        row = await cursor.fetchone()
+        return self._row_to_dict(row) if row else None
+
+    async def list_notification_channels(self) -> list[dict[str, Any]]:
+        """List all notification channels."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM notification_channels ORDER BY updated_at DESC"
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def delete_notification_channel(self, channel_id: str) -> None:
+        """Delete a notification channel."""
+        await self.conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
         await self.conn.commit()
 
     # -- Cache CRUD -----------------------------------------------------------

@@ -131,6 +131,12 @@ dagloom/
 │   ├── triggers.py      # Cron/间隔触发器解析
 │   ├── cache.py         # 基于 SHA-256 哈希的输出缓存
 │   └── checkpoint.py    # 失败恢复支持
+├── notifications/
+│   ├── __init__.py
+│   ├── base.py          # NotificationChannel ABC、ExecutionEvent
+│   ├── email.py         # SMTPChannel（aiosmtplib）
+│   ├── webhook.py       # WebhookChannel（Slack、企微、飞书、通用 JSON）
+│   └── registry.py      # ChannelRegistry、resolve_channel（URI 解析）
 ├── server/
 │   ├── __init__.py
 │   ├── app.py           # FastAPI 应用工厂（启动调度器）
@@ -218,6 +224,7 @@ pipeline = classify >> (urgent_handler | normal_handler)
 class Pipeline:
     name: str                           # 可选的管道名称
     schedule: str | None                # Cron 表达式或间隔简写（如 "0 9 * * *"、"every 30m"）
+    notify_on: dict | None              # 通知配置（如 {"failure": ["email://..."], "success": ["webhook://..."]}）
     _nodes: dict[str, Node]             # 节点注册表
     _edges: list[tuple[str, str]]       # 边列表 (source, target)
     _tail_nodes: list[str]              # >> 操作的当前链尾
@@ -469,6 +476,52 @@ pipeline.schedule = "every 30m"
 
 ---
 
+## 通知系统
+
+### 概览（`dagloom/notifications/`）
+
+管道执行结果可通过邮件或 Webhook 发送到外部服务。通知在 `AsyncExecutor.execute()` 的 finally 块中分发——永远不会掩盖执行错误。
+
+### 通知渠道
+
+- **SMTPChannel**（`email.py`）：通过 `aiosmtplib` 异步发送邮件，支持 STARTTLS，可自定义主题模板
+- **WebhookChannel**（`webhook.py`）：通过 `httpx` 发送 HTTP POST，内置格式化器：
+  - `"slack"` — Slack Block Kit，带颜色编码
+  - `"wechat_work"` — 企业微信 Markdown 消息
+  - `"feishu"` — 飞书交互式卡片
+  - `"generic"` — 纯 JSON，包含所有事件字段
+
+### URI 解析（`registry.py`）
+
+通过 URI 字符串创建渠道：
+```python
+resolve_channel("email://ops@team.com")                  # → SMTPChannel
+resolve_channel("webhook://https://...?format=slack")     # → WebhookChannel
+```
+
+### Pipeline 配置
+
+```python
+pipeline.notify_on = {
+    "failure": ["email://ops@team.com", "webhook://https://hooks.slack.com/...?format=slack"],
+    "success": ["webhook://https://hooks.slack.com/...?format=slack"],
+}
+```
+
+### 执行流程
+
+```
+AsyncExecutor.execute() → finally 块
+  ├─ 检查 pipeline.notify_on
+  ├─ 构建 ExecutionEvent（状态、耗时、错误、失败节点）
+  ├─ 对 notify_on[status] 中每个 URI：
+  │   ├─ resolve_channel(uri)
+  │   └─ channel.send(event)  # 失败仅记录警告，不抛异常
+  └─ 完成
+```
+
+---
+
 ## 存储层
 
 ### SQLite 表结构 — `dagloom/store/db.py`
@@ -618,6 +671,10 @@ def create_app() -> FastAPI:
 | DELETE | `/api/schedules/{id}` | 删除定时调度 |
 | POST | `/api/schedules/{id}/pause` | 暂停调度 |
 | POST | `/api/schedules/{id}/resume` | 恢复调度 |
+| GET | `/api/notifications` | 列出通知渠道 |
+| POST | `/api/notifications` | 创建通知渠道 |
+| DELETE | `/api/notifications/{id}` | 删除通知渠道 |
+| POST | `/api/notifications/test` | 发送测试通知 |
 
 ### WebSocket — `dagloom/server/ws.py`
 
@@ -650,7 +707,7 @@ class ConnectionManager:
 4. **插件系统**：自定义节点类型（Docker、Kubernetes Job）
 5. **数据血缘**：跟踪数据在管道中的流转
 6. **监控**：Prometheus 指标、Grafana 仪表板
-7. **通知节点**：Email / Webhook（Slack、企微、飞书）管道事件告警
+7. ~~**通知节点**：Email / Webhook（Slack、企微、飞书）管道事件告警~~ ✅ 已在 v0.5.0 实现
 
 ### 非目标
 

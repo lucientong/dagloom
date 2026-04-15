@@ -89,6 +89,32 @@ class ScheduleResponse(BaseModel):
     description: str = ""
 
 
+class NotificationChannelRequest(BaseModel):
+    """Request body for creating/updating a notification channel."""
+
+    name: str
+    type: str  # "email" or "webhook"
+    config: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class NotificationChannelResponse(BaseModel):
+    """Notification channel response."""
+
+    id: str
+    name: str
+    type: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class NotificationTestRequest(BaseModel):
+    """Request body for sending a test notification."""
+
+    channel_id: str
+    pipeline_name: str = "test-pipeline"
+
+
 # -- Shared state (injected by app.py lifespan) ------------------------------
 
 _state: dict[str, Any] = {}
@@ -446,3 +472,125 @@ async def resume_schedule(schedule_id: str) -> dict[str, str]:
 
     await scheduler.resume(schedule_id)
     return {"status": "ok"}
+
+
+# -- Notification Channel Endpoints ------------------------------------------
+
+
+@router.get("/notifications", response_model=list[NotificationChannelResponse])
+async def list_notification_channels() -> list[dict[str, Any]]:
+    """List all notification channels."""
+    db = get_state("db")
+    if db is None:
+        return []
+    channels = await db.list_notification_channels()
+    result = []
+    for ch in channels:
+        config = ch.get("config", "{}")
+        if isinstance(config, str):
+            config = json.loads(config)
+        result.append(
+            {
+                "id": ch["id"],
+                "name": ch["name"],
+                "type": ch["type"],
+                "config": config,
+                "enabled": bool(ch.get("enabled", True)),
+            }
+        )
+    return result
+
+
+@router.post("/notifications", response_model=NotificationChannelResponse)
+async def create_notification_channel(
+    body: NotificationChannelRequest,
+) -> dict[str, Any]:
+    """Create a notification channel."""
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+
+    if body.type not in ("email", "webhook"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported channel type: {body.type!r}. Use 'email' or 'webhook'.",
+        )
+
+    channel_id = uuid.uuid4().hex[:12]
+    await db.save_notification_channel(
+        channel_id=channel_id,
+        name=body.name,
+        channel_type=body.type,
+        config=body.config,
+        enabled=body.enabled,
+    )
+    return {
+        "id": channel_id,
+        "name": body.name,
+        "type": body.type,
+        "config": body.config,
+        "enabled": body.enabled,
+    }
+
+
+@router.delete("/notifications/{channel_id}")
+async def delete_notification_channel(channel_id: str) -> dict[str, str]:
+    """Delete a notification channel."""
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+    await db.delete_notification_channel(channel_id)
+    return {"status": "ok"}
+
+
+@router.post("/notifications/test")
+async def test_notification(body: NotificationTestRequest) -> dict[str, str]:
+    """Send a test notification through a configured channel."""
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+
+    channel_record = await db.get_notification_channel(body.channel_id)
+    if channel_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Channel {body.channel_id!r} not found.",
+        )
+
+    from dagloom.notifications.base import ExecutionEvent
+    from dagloom.notifications.email import SMTPChannel
+    from dagloom.notifications.webhook import WebhookChannel
+
+    config = channel_record.get("config", "{}")
+    if isinstance(config, str):
+        config = json.loads(config)
+
+    channel_type = channel_record["type"]
+    if channel_type == "email":
+        channel = SMTPChannel(**config)
+    elif channel_type == "webhook":
+        channel = WebhookChannel(**config)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown channel type: {channel_type!r}.",
+        )
+
+    event = ExecutionEvent(
+        pipeline_name=body.pipeline_name,
+        pipeline_id="test",
+        execution_id="test-" + uuid.uuid4().hex[:8],
+        status="success",
+        duration_seconds=1.23,
+        node_count=3,
+    )
+
+    try:
+        await channel.send(event)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Notification delivery failed: {exc}",
+        ) from exc
+
+    return {"status": "ok", "message": "Test notification sent successfully."}

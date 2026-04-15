@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import inspect as _inspect
 import logging
+import time
 from typing import Any
 
 from dagloom.core.context import ExecutionContext, NodeStatus
@@ -121,7 +122,9 @@ class AsyncExecutor:
 
         success = True
         error_message: str | None = None
+        failed_node: str | None = None
         skipped_nodes: set[str] = set()
+        start_time = time.monotonic()
 
         try:
             for layer_idx, layer in enumerate(layers):
@@ -168,8 +171,10 @@ class AsyncExecutor:
                 return ctx.get_output(active_leaves[0])
             return {leaf: ctx.get_output(leaf) for leaf in active_leaves}
 
-        except ExecutionError:
+        except ExecutionError as exc:
             success = False
+            failed_node = exc.node_name
+            error_message = str(exc)
             raise
 
         except Exception as exc:
@@ -178,12 +183,73 @@ class AsyncExecutor:
             raise
 
         finally:
+            duration = time.monotonic() - start_time
+
             if ckpt is not None:
                 await ckpt.finish_execution(
                     execution_id,
                     pipeline_id,
                     success=success,
                     error_message=error_message,
+                )
+
+            # --- Notification dispatch ---
+            await self._send_notifications(
+                pipeline_id=pipeline_id,
+                execution_id=execution_id,
+                success=success,
+                error_message=error_message,
+                failed_node=failed_node,
+                duration=duration,
+            )
+
+    async def _send_notifications(
+        self,
+        pipeline_id: str,
+        execution_id: str,
+        success: bool,
+        error_message: str | None,
+        failed_node: str | None,
+        duration: float,
+    ) -> None:
+        """Dispatch notifications based on ``pipeline.notify_on`` config.
+
+        Silently logs and continues if any notification fails — never
+        raises exceptions to avoid masking the original execution result.
+        """
+        notify_on = getattr(self.pipeline, "notify_on", None)
+        if not notify_on:
+            return
+
+        from dagloom.notifications.base import ExecutionEvent
+        from dagloom.notifications.registry import resolve_channel
+
+        status = "success" if success else "failed"
+        uris = notify_on.get(status, [])
+        if not uris:
+            return
+
+        event = ExecutionEvent(
+            pipeline_name=self.pipeline.name or "unnamed",
+            pipeline_id=pipeline_id,
+            execution_id=execution_id,
+            status=status,
+            duration_seconds=duration,
+            node_count=len(self.pipeline.nodes),
+            error_message=error_message,
+            failed_node=failed_node,
+        )
+
+        for uri in uris:
+            try:
+                channel = resolve_channel(uri)
+                await channel.send(event)
+            except Exception:
+                logger.warning(
+                    "Notification to %r failed for pipeline %r.",
+                    uri,
+                    pipeline_id,
+                    exc_info=True,
                 )
 
     async def _execute_node(

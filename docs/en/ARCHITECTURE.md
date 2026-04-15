@@ -131,6 +131,12 @@ dagloom/
 │   ├── triggers.py      # Cron/interval trigger parsing
 │   ├── cache.py         # Output caching with SHA-256 hashing
 │   └── checkpoint.py    # Resume from failure support
+├── notifications/
+│   ├── __init__.py
+│   ├── base.py          # NotificationChannel ABC, ExecutionEvent
+│   ├── email.py         # SMTPChannel (aiosmtplib)
+│   ├── webhook.py       # WebhookChannel (Slack, WeChat Work, Feishu, generic)
+│   └── registry.py      # ChannelRegistry, resolve_channel (URI-based)
 ├── server/
 │   ├── __init__.py
 │   ├── app.py           # FastAPI application factory (starts scheduler)
@@ -194,6 +200,8 @@ A **Pipeline** is a DAG (Directed Acyclic Graph) of connected nodes:
 class Pipeline:
     name: str                           # Optional pipeline name
     schedule: str | None                # Cron expression or interval shorthand (e.g. "0 9 * * *", "every 30m")
+    notify_on: dict | None              # Notification config (e.g. {"failure": ["email://..."], "success": ["webhook://..."]})
+    notify_on: dict | None              # Notification config (e.g. {"failure": ["email://..."], "success": ["webhook://..."]})
     _nodes: dict[str, Node]             # Node registry
     _edges: list[tuple[str, str]]       # Edge list (source, target)
     _tail_nodes: list[str]              # Current chain tails for >>
@@ -445,6 +453,52 @@ pipeline.schedule = "every 30m"
 
 ---
 
+## Notification System
+
+### Overview (`dagloom/notifications/`)
+
+Pipeline execution results can be sent to external services via email or webhooks. Notifications are dispatched in the `AsyncExecutor.execute()` finally block — they never mask execution errors.
+
+### Channels
+
+- **SMTPChannel** (`email.py`): Async email via `aiosmtplib`. Supports STARTTLS, customizable subject template.
+- **WebhookChannel** (`webhook.py`): HTTP POST via `httpx`. Built-in formatters:
+  - `"slack"` — Slack Block Kit with color-coded attachments
+  - `"wechat_work"` — WeChat Work (WeCom) markdown message
+  - `"feishu"` — Feishu (Lark) interactive card
+  - `"generic"` — plain JSON with all event fields
+
+### URI Resolution (`registry.py`)
+
+Channels are created from URI strings:
+```python
+resolve_channel("email://ops@team.com")           # → SMTPChannel
+resolve_channel("webhook://https://...?format=slack")  # → WebhookChannel
+```
+
+### Pipeline Configuration
+
+```python
+pipeline.notify_on = {
+    "failure": ["email://ops@team.com", "webhook://https://hooks.slack.com/...?format=slack"],
+    "success": ["webhook://https://hooks.slack.com/...?format=slack"],
+}
+```
+
+### Execution Flow
+
+```
+AsyncExecutor.execute() → finally block
+  ├─ Check pipeline.notify_on
+  ├─ Build ExecutionEvent (status, duration, error, failed_node)
+  ├─ For each URI in notify_on[status]:
+  │   ├─ resolve_channel(uri)
+  │   └─ channel.send(event)  # failure logged as warning, never raised
+  └─ Done
+```
+
+---
+
 ## Storage Layer
 
 ### SQLite Schema (`dagloom/store/db.py`)
@@ -594,6 +648,14 @@ def create_app() -> FastAPI:
 | DELETE | `/api/schedules/{id}` | Delete a schedule |
 | POST | `/api/schedules/{id}/pause` | Pause a schedule |
 | POST | `/api/schedules/{id}/resume` | Resume a schedule |
+| GET | `/api/notifications` | List notification channels |
+| POST | `/api/notifications` | Create a notification channel |
+| DELETE | `/api/notifications/{id}` | Delete a channel |
+| POST | `/api/notifications/test` | Send a test notification |
+| GET | `/api/notifications` | List notification channels |
+| POST | `/api/notifications` | Create a notification channel |
+| DELETE | `/api/notifications/{id}` | Delete a channel |
+| POST | `/api/notifications/test` | Send a test notification |
 
 ### WebSocket (`dagloom/server/ws.py`)
 
@@ -626,7 +688,7 @@ Events:
 4. **Plugins**: Custom node types (Docker, Kubernetes jobs)
 5. **Lineage Tracking**: Track data provenance through pipelines
 6. **Monitoring**: Prometheus metrics, Grafana dashboards
-7. **Notification Nodes**: Email / Webhook (Slack, WeChat Work, Feishu) alerts on pipeline events
+7. ~~**Notification Nodes**: Email / Webhook (Slack, WeChat Work, Feishu) alerts on pipeline events~~ ✅ Implemented in v0.5.0
 
 ### Non-Goals
 
