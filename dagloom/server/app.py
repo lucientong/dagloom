@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dagloom.scheduler.scheduler import SchedulerService
 from dagloom.server.api import router as api_router
 from dagloom.server.api import set_state, ws_manager
+from dagloom.server.watcher import PipelineWatcher
 from dagloom.store.db import Database
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Manage application lifecycle: database setup, scheduler, and teardown."""
+    """Manage application lifecycle: database setup, scheduler, watcher, and teardown."""
     db = Database()
     await db.connect()
     set_state("db", db)
@@ -37,9 +38,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await scheduler.start()
     set_state("scheduler", scheduler)
 
+    # Start the file watcher for bidirectional code <-> UI sync.
+    async def _on_file_change(file_path: str, dag: dict) -> None:
+        """Broadcast DAG updates when a pipeline file changes."""
+        # Try to find the pipeline_id associated with this file.
+        pipelines = await db.list_pipelines()
+        for p in pipelines:
+            if p.get("source_file") == file_path:
+                await ws_manager.broadcast(
+                    p["id"],
+                    {
+                        "type": "dag_updated",
+                        "nodes": [n.get("name", "") for n in dag.get("nodes", [])],
+                        "edges": dag.get("edges", []),
+                        "source_file": file_path,
+                    },
+                )
+                break
+
+    watcher = PipelineWatcher(watch_dirs=["."], on_change=_on_file_change)
+    await watcher.start()
+    set_state("watcher", watcher)
+
     logger.info("Dagloom server started.")
     yield
 
+    await watcher.stop()
     await scheduler.stop()
     await db.close()
     logger.info("Dagloom server stopped.")

@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-04-14
+## [0.6.0] - 2026-04-15
+
+### Added
+
+- **Bidirectional code ↔ UI sync (end-to-end)**:
+- **Enhanced AST parser**: `code_to_dag` now captures full function bodies via `ast.get_source_segment`, extracts type annotations, handles `|` (BitOr) operator for branch detection, and extracts pipeline metadata (`name`, `schedule`) from assignments and `Pipeline()` constructor
+- **Rich DAG model**: `DagModel`, `NodeModel`, `EdgeModel` dataclasses as shared intermediate representation between code and UI
+- **Round-trip code generation**: `dag_to_code` preserves original function source when available (no stub regeneration), falls back to clean stub generation for new nodes
+- **File watcher** (`dagloom/server/watcher.py`): `PipelineWatcher` using `watchfiles` monitors pipeline directories for `.py` file changes, re-parses on change, broadcasts `dag_updated` via WebSocket — debounced with content hash deduplication
+- **Optimistic locking**: `PUT /api/pipelines/{id}/dag` accepts `source_hash` for conflict detection — returns HTTP 409 if the file was modified since last read
+- **Save flow wired**: `PUT /api/pipelines/{id}/dag` now calls `dag_to_code()` and writes the generated Python file to disk, updating the watcher hash to prevent echo
+- **Read flow wired**: `GET /api/pipelines/{id}/dag` parses the source file (when available) for the richest DAG representation including function bodies
+  - `parse_to_model()` function for rich parsing with `DagModel` output
+  - `compute_source_hash()` utility for SHA-256 content hashing
+  - Pipeline metadata extraction from `Pipeline(name="...", schedule="...")` constructor calls
+- File watcher auto-starts with `dagloom serve` (integrated into FastAPI lifespan)
+- 36 new tests for codegen round-trip, AST parsing, code generation, file watcher, and model dataclasses
+
+### Changed
+
+- `DagUpdateRequest` now includes optional `metadata` and `source_hash` fields
+- `GET /api/pipelines/{id}/dag` returns richer structure with `metadata` and `source_hash`
+- `PUT /api/pipelines/{id}/dag` returns `source_hash` in response for subsequent conflict detection
+- `dagloom/server/app.py`: lifespan now starts/stops `PipelineWatcher` alongside scheduler
+
+## [0.5.0] - 2026-04-15
 
 ### Added
 

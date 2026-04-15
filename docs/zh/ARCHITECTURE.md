@@ -141,7 +141,8 @@ dagloom/
 │   ├── __init__.py
 │   ├── app.py           # FastAPI 应用工厂（启动调度器）
 │   ├── api.py           # REST API 端点（管道 + 调度）
-│   ├── codegen.py       # 双向代码 ↔ DAG 转换
+│   ├── codegen.py       # 双向代码 ↔ DAG 转换（支持 round-trip 保真）
+│   ├── watcher.py       # 文件监控，实现代码 → UI 实时同步
 │   └── ws.py            # WebSocket 连接管理器
 ├── store/
 │   ├── __init__.py
@@ -693,7 +694,29 @@ class ConnectionManager:
 - `node_success` — 节点成功
 - `node_failed` — 节点失败
 - `execution_completed` — 执行完成
-- `dag_updated` — DAG 结构更新
+- `dag_updated` — DAG 结构更新（来自文件编辑或 UI 保存）
+
+### 双向同步流程
+
+**UI → 文件（保存）：**
+```
+前端拖拽编辑 → PUT /api/pipelines/{id}/dag
+  ├─ 乐观锁：比对 source_hash → 冲突时返回 409
+  ├─ dag_to_code() → 生成 Python 源码（保留原始函数体）
+  ├─ 写入 .py 文件
+  ├─ 更新 watcher 哈希（防止回声触发）
+  ├─ 保存到数据库
+  └─ 通过 WebSocket 广播 dag_updated
+```
+
+**文件 → UI（监控）：**
+```
+用户在 VS Code / vim 中编辑 .py → watchfiles 检测到变更
+  ├─ 内容哈希去重（未变则跳过）
+  ├─ code_to_dag() → 解析为 DagModel（含函数体）
+  ├─ 通过 WebSocket 广播 dag_updated
+  └─ 前端重新渲染 DAG
+```
 
 ---
 

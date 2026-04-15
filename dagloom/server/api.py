@@ -36,6 +36,8 @@ class DagUpdateRequest(BaseModel):
 
     nodes: list[dict[str, Any]]
     edges: list[list[str]]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    source_hash: str | None = None  # For optimistic locking
 
 
 class PipelineResponse(BaseModel):
@@ -318,9 +320,13 @@ async def resume_pipeline(pipeline_id: str) -> dict[str, Any]:
     }
 
 
-@router.get("/pipelines/{pipeline_id}/dag", response_model=DagResponse)
+@router.get("/pipelines/{pipeline_id}/dag")
 async def get_dag(pipeline_id: str) -> dict[str, Any]:
-    """Get the DAG structure for frontend rendering."""
+    """Get the DAG structure for frontend rendering.
+
+    If the pipeline has an associated source file, the file is parsed
+    to extract the full DAG (with function bodies and metadata).
+    """
     db = get_state("db")
     if db is None:
         raise HTTPException(status_code=500, detail="Database not initialized.")
@@ -329,16 +335,36 @@ async def get_dag(pipeline_id: str) -> dict[str, Any]:
     if pipeline is None:
         raise HTTPException(status_code=404, detail=f"Pipeline {pipeline_id!r} not found.")
 
+    source_file = pipeline.get("source_file")
+
+    # If we have a source file, parse it for the richest DAG representation.
+    if source_file:
+        from pathlib import Path
+
+        from dagloom.server.codegen import code_to_dag
+
+        path = Path(source_file)
+        if path.exists():
+            source = path.read_text(encoding="utf-8")
+            dag = code_to_dag(source)
+            return dag
+
+    # Fallback to DB-stored structure.
     nodes_raw = json.loads(pipeline.get("node_names", "[]"))
     edges_raw = json.loads(pipeline.get("edges", "[]"))
-
     nodes = [{"name": n, "id": n} for n in nodes_raw]
-    return {"nodes": nodes, "edges": edges_raw}
+    return {"nodes": nodes, "edges": edges_raw, "metadata": {}, "source_hash": ""}
 
 
 @router.put("/pipelines/{pipeline_id}/dag")
-async def update_dag(pipeline_id: str, body: DagUpdateRequest) -> dict[str, str]:
-    """Update the DAG structure from frontend drag-and-drop."""
+async def update_dag(pipeline_id: str, body: DagUpdateRequest) -> dict[str, Any]:
+    """Update the DAG structure from frontend drag-and-drop.
+
+    If the pipeline has an associated source file, the DAG is converted
+    back to Python code and written to disk.  Includes optimistic locking
+    via ``source_hash`` — returns 409 Conflict if the file was modified
+    since the last read.
+    """
     db = get_state("db")
     if db is None:
         raise HTTPException(status_code=500, detail="Database not initialized.")
@@ -350,12 +376,52 @@ async def update_dag(pipeline_id: str, body: DagUpdateRequest) -> dict[str, str]
     node_names = [n.get("name", n.get("id", "")) for n in body.nodes]
     edges = [tuple(e) for e in body.edges]
 
+    # --- Optimistic locking: check source_hash if file exists ---
+    source_file = pipeline.get("source_file")
+    if source_file and body.source_hash:
+        from pathlib import Path
+
+        from dagloom.server.codegen import compute_source_hash
+
+        path = Path(source_file)
+        if path.exists():
+            current_hash = compute_source_hash(path.read_text(encoding="utf-8"))
+            if current_hash != body.source_hash:
+                raise HTTPException(
+                    status_code=409,
+                    detail="File has been modified since last read. Reload the DAG and try again.",
+                )
+
+    # --- Write code to file if source_file is set ---
+    new_hash = ""
+    if source_file:
+        from pathlib import Path
+
+        from dagloom.server.codegen import compute_source_hash, dag_to_code
+
+        dag_dict = {
+            "nodes": body.nodes,
+            "edges": body.edges,
+            "metadata": body.metadata,
+        }
+        code = dag_to_code(dag_dict)
+        path = Path(source_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(code, encoding="utf-8")
+        new_hash = compute_source_hash(code)
+
+        # Tell the watcher to ignore this write.
+        watcher = get_state("watcher")
+        if watcher is not None:
+            watcher.update_hash(source_file, new_hash)
+
     await db.save_pipeline(
         pipeline_id=pipeline_id,
         name=pipeline["name"],
         description=pipeline.get("description", ""),
         node_names=node_names,
         edges=edges,
+        source_file=source_file,
     )
 
     await ws_manager.broadcast(
@@ -363,7 +429,7 @@ async def update_dag(pipeline_id: str, body: DagUpdateRequest) -> dict[str, str]
         {"type": "dag_updated", "nodes": node_names, "edges": body.edges},
     )
 
-    return {"status": "ok"}
+    return {"status": "ok", "source_hash": new_hash}
 
 
 # -- Schedule Endpoints ------------------------------------------------------
