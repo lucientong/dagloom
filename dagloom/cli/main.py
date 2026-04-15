@@ -34,11 +34,38 @@ def cli() -> None:
 @click.option("--host", default="127.0.0.1", help="Bind host.")
 @click.option("--port", default=8000, type=int, help="Bind port.")
 @click.option("--reload", is_flag=True, help="Enable auto-reload (dev mode).")
-def serve(host: str, port: int, reload: bool) -> None:
-    """Start the Dagloom web server."""
+@click.option(
+    "--auth-type",
+    type=click.Choice(["API_KEY", "BASIC_AUTH", "NONE"], case_sensitive=False),
+    default=None,
+    help="Authentication type (API_KEY or BASIC_AUTH). Defaults to NONE if not specified.",
+)
+@click.option(
+    "--auth-key",
+    default=None,
+    help="Auth credentials (API key for API_KEY, or 'user:pass' for BASIC_AUTH).",
+)
+def serve(host: str, port: int, reload: bool, auth_type: str | None, auth_key: str | None) -> None:
+    """Start the Dagloom web server.
+
+    Examples:
+        dagloom serve                                    # No authentication
+        dagloom serve --auth-type API_KEY --auth-key sk-abc123
+        dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
+    """
+    import os
+
     import uvicorn
 
+    # Set environment variables for the app factory to read.
+    if auth_type:
+        os.environ["DAGLOOM_AUTH_TYPE"] = auth_type
+    if auth_key:
+        os.environ["DAGLOOM_AUTH_KEY"] = auth_key
+
     click.echo(f"🧶 Dagloom server starting on http://{host}:{port}")
+    if auth_type:
+        click.echo(f"   Authentication: {auth_type}")
     uvicorn.run(
         "dagloom.server.app:create_app",
         host=host,

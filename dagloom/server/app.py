@@ -3,16 +3,24 @@
 Creates the Dagloom web server with REST API, WebSocket support,
 and database lifecycle management.
 
+Supports authentication via CLI options:
+- --auth-type: Type of authentication (API_KEY, BASIC_AUTH, NONE)
+- --auth-key: API key or username:password for basic auth
+
 Usage::
 
     uvicorn dagloom.server.app:create_app --factory
+    dagloom serve --auth-type API_KEY --auth-key sk-abc123
+    dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dagloom.scheduler.scheduler import SchedulerService
 from dagloom.server.api import router as api_router
 from dagloom.server.api import set_state, ws_manager
+from dagloom.server.middleware import AuthMiddleware
 from dagloom.server.watcher import PipelineWatcher
 from dagloom.store.db import Database
 
@@ -39,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     set_state("scheduler", scheduler)
 
     # Start the file watcher for bidirectional code <-> UI sync.
-    async def _on_file_change(file_path: str, dag: dict) -> None:
+    async def _on_file_change(file_path: str, dag: dict[str, Any]) -> None:
         """Broadcast DAG updates when a pipeline file changes."""
         # Try to find the pipeline_id associated with this file.
         pipelines = await db.list_pipelines()
@@ -69,12 +78,68 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Dagloom server stopped.")
 
 
-def create_app() -> FastAPI:
+def _create_auth_provider(auth_type: str | None, auth_key: str | None) -> Any | None:
+    """Create an authentication provider based on CLI arguments.
+
+    Args:
+        auth_type: Type of authentication (API_KEY, BASIC_AUTH, or None/NONE).
+        auth_key: Credentials for the auth type.
+
+    Returns:
+        An AuthProvider instance, or None if no auth is configured.
+
+    Raises:
+        ValueError: If auth_type is invalid or auth_key is missing.
+    """
+    if auth_type is None or auth_type.upper() == "NONE":
+        return None
+
+    auth_type_upper = auth_type.upper()
+
+    if auth_type_upper == "API_KEY":
+        from dagloom.security.auth import APIKeyAuth
+
+        if not auth_key:
+            raise ValueError("--auth-key is required for API_KEY authentication")
+        logger.info("Initializing API Key authentication")
+        return APIKeyAuth(api_key=auth_key)
+
+    if auth_type_upper == "BASIC_AUTH":
+        from dagloom.security.auth import BasicAuth
+
+        if not auth_key:
+            raise ValueError("--auth-key is required for BASIC_AUTH authentication")
+        # Expected format: username:password
+        if ":" not in auth_key:
+            raise ValueError("--auth-key for BASIC_AUTH must be in format: username:password")
+        username, password = auth_key.split(":", 1)
+        logger.info("Initializing Basic Auth authentication for user %r", username)
+        return BasicAuth(username=username, password=password)
+
+    raise ValueError(f"Unknown authentication type: {auth_type}")
+
+
+def create_app(
+    auth_type: str | None = None,
+    auth_key: str | None = None,
+) -> FastAPI:
     """Create and configure the FastAPI application.
+
+    Args:
+        auth_type: Type of authentication (API_KEY, BASIC_AUTH, or None).
+            Can also be set via DAGLOOM_AUTH_TYPE environment variable.
+        auth_key: Credentials for the auth type.
+            Can also be set via DAGLOOM_AUTH_KEY environment variable.
 
     Returns:
         A configured FastAPI instance.
     """
+    # Check environment variables if CLI args not provided.
+    if auth_type is None:
+        auth_type = os.environ.get("DAGLOOM_AUTH_TYPE")
+    if auth_key is None:
+        auth_key = os.environ.get("DAGLOOM_AUTH_KEY")
+
     app = FastAPI(
         title="Dagloom",
         description="A lightweight pipeline/workflow engine.",
@@ -90,6 +155,19 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Authentication middleware (if configured).
+    try:
+        auth_provider = _create_auth_provider(auth_type, auth_key)
+        if auth_provider is not None:
+            app.add_middleware(
+                AuthMiddleware,
+                auth_provider=auth_provider,
+            )
+            logger.info("Authentication middleware enabled: %s", auth_type)
+    except ValueError as exc:
+        logger.error("Failed to initialize authentication: %s", exc)
+        raise
 
     # REST API routes.
     app.include_router(api_router)

@@ -13,6 +13,7 @@ This document provides a comprehensive overview of Dagloom's architecture, desig
 - [Storage Layer](#storage-layer)
 - [Web Server](#web-server)
 - [Security](#security)
+- [Authentication](#authentication)
 - [Future Roadmap](#future-roadmap)
 
 ---
@@ -143,6 +144,7 @@ dagloom/
 │   ├── app.py           # FastAPI application factory (starts scheduler)
 │   ├── api.py           # REST endpoints (pipelines + schedules)
 │   ├── codegen.py       # Bidirectional code ↔ DAG conversion (round-trip fidelity)
+│   ├── middleware.py    # AuthMiddleware, RequireAuth, OptionalAuth
 │   ├── watcher.py       # File watcher for live code → UI sync
 │   └── ws.py            # WebSocket connection manager
 ├── store/
@@ -150,6 +152,7 @@ dagloom/
 │   └── db.py            # SQLite database layer
 ├── security/
 │   ├── __init__.py
+│   ├── auth.py          # AuthProvider ABC, APIKeyAuth, BasicAuth, NoAuth
 │   ├── encryption.py    # Encryptor class (Fernet-based), DecryptionError, generate_key()
 │   └── secrets.py       # SecretStore with layered resolution (env → .env → encrypted DB)
 ├── demo/
@@ -993,6 +996,212 @@ dagloom secret delete DB_PASSWORD       # removes from DB
 
 ---
 
+## Authentication
+
+### Request Authentication (v0.11.0) — `dagloom/security/auth.py`, `dagloom/server/middleware.py`
+
+Dagloom supports optional request-level authentication for the web server. When enabled, all API endpoints require valid credentials — except public paths (`/health`, `/docs`, `/openapi.json`, `/redoc`).
+
+### Auth Providers (`dagloom/security/auth.py`)
+
+`AuthProvider` is an abstract base class with three built-in implementations:
+
+```python
+class AuthProvider(ABC):
+    @abstractmethod
+    async def authenticate(self, credential: str) -> bool: ...
+
+class APIKeyAuth(AuthProvider):
+    """Validates Bearer tokens against a configured API key."""
+
+class BasicAuth(AuthProvider):
+    """Validates HTTP Basic credentials (username:password)."""
+
+class NoAuth(AuthProvider):
+    """No-op provider — always returns True. Used when auth is disabled."""
+```
+
+| Provider | `--auth-type` | Credential format | Header |
+|----------|---------------|-------------------|--------|
+| `APIKeyAuth` | `API_KEY` | Raw API key string | `Authorization: Bearer sk-abc123` |
+| `BasicAuth` | `BASIC_AUTH` | `username:password` | `Authorization: Basic <base64>` |
+| `NoAuth` | *(default)* | — | — |
+
+### Middleware (`dagloom/server/middleware.py`)
+
+`AuthMiddleware` is a Starlette middleware that intercepts every request:
+
+1. Skip public paths: `/health`, `/docs`, `/openapi.json`, `/redoc`
+2. Extract credentials from the `Authorization` header (Bearer or Basic scheme)
+3. Call `AuthProvider.authenticate(credential)` to validate
+4. Reject with `401 Unauthorized` on failure
+
+```python
+class AuthMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, auth_provider: AuthProvider):
+        super().__init__(app)
+        self.auth_provider = auth_provider
+
+    async def dispatch(self, request, call_next):
+        if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        # Extract and validate credentials...
+```
+
+### FastAPI Dependencies
+
+Two dependencies are provided for route-level control:
+
+- **`RequireAuth`** — raises `401` if credentials are missing or invalid
+- **`OptionalAuth`** — allows unauthenticated access; populates `request.state.authenticated` for downstream logic
+
+### Configuration
+
+Auth is configured via CLI flags or environment variables:
+
+| CLI Flag | Environment Variable | Description |
+|----------|---------------------|-------------|
+| `--auth-type` | `DAGLOOM_AUTH_TYPE` | `API_KEY`, `BASIC_AUTH`, or empty (disabled) |
+| `--auth-key` | `DAGLOOM_AUTH_KEY` | The API key or `username:password` string |
+
+```bash
+# API key authentication
+dagloom serve --auth-type API_KEY --auth-key sk-abc123
+
+# Basic authentication
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
+
+# Environment variables
+export DAGLOOM_AUTH_TYPE=API_KEY
+export DAGLOOM_AUTH_KEY=sk-abc123
+dagloom serve
+```
+
+### Authentication Flow
+
+```
+Incoming Request
+  │
+  ├─ Path in PUBLIC_PATHS? ──yes──→ Skip auth → call_next()
+  │
+  no
+  │
+  ├─ Extract Authorization header
+  │   ├─ Bearer <token>  → credential = token
+  │   └─ Basic <base64>  → credential = decoded username:password
+  │
+  ├─ AuthProvider.authenticate(credential)
+  │   ├─ True  → call_next()
+  │   └─ False → 401 Unauthorized
+  │
+  └─ No header → 401 Unauthorized
+```
+
+---
+
+## Authentication
+
+### Request Authentication (v0.11.0) — `dagloom/security/auth.py`, `dagloom/server/middleware.py`
+
+Dagloom supports optional request-level authentication for the web server. When enabled, all API endpoints require valid credentials — except public paths (`/health`, `/docs`, `/openapi.json`, `/redoc`).
+
+### Auth Providers (`dagloom/security/auth.py`)
+
+`AuthProvider` is an abstract base class with three built-in implementations:
+
+```python
+class AuthProvider(ABC):
+    @abstractmethod
+    async def authenticate(self, credential: str) -> bool: ...
+
+class APIKeyAuth(AuthProvider):
+    """Validates Bearer tokens against a configured API key."""
+
+class BasicAuth(AuthProvider):
+    """Validates HTTP Basic credentials (username:password)."""
+
+class NoAuth(AuthProvider):
+    """No-op provider — always returns True. Used when auth is disabled."""
+```
+
+| Provider | `--auth-type` | Credential format | Header |
+|----------|---------------|-------------------|--------|
+| `APIKeyAuth` | `API_KEY` | Raw API key string | `Authorization: Bearer sk-abc123` |
+| `BasicAuth` | `BASIC_AUTH` | `username:password` | `Authorization: Basic <base64>` |
+| `NoAuth` | *(default)* | — | — |
+
+### Middleware (`dagloom/server/middleware.py`)
+
+`AuthMiddleware` is a Starlette middleware that intercepts every request:
+
+1. Skip public paths: `/health`, `/docs`, `/openapi.json`, `/redoc`
+2. Extract credentials from the `Authorization` header (Bearer or Basic scheme)
+3. Call `AuthProvider.authenticate(credential)` to validate
+4. Reject with `401 Unauthorized` on failure
+
+```python
+class AuthMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, auth_provider: AuthProvider):
+        super().__init__(app)
+        self.auth_provider = auth_provider
+
+    async def dispatch(self, request, call_next):
+        if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        # Extract and validate credentials...
+```
+
+### FastAPI Dependencies
+
+Two dependencies are provided for route-level control:
+
+- **`RequireAuth`** — raises `401` if credentials are missing or invalid
+- **`OptionalAuth`** — allows unauthenticated access; populates `request.state.authenticated` for downstream logic
+
+### Configuration
+
+Auth is configured via CLI flags or environment variables:
+
+| CLI Flag | Environment Variable | Description |
+|----------|---------------------|-------------|
+| `--auth-type` | `DAGLOOM_AUTH_TYPE` | `API_KEY`, `BASIC_AUTH`, or empty (disabled) |
+| `--auth-key` | `DAGLOOM_AUTH_KEY` | The API key or `username:password` string |
+
+```bash
+# API key authentication
+dagloom serve --auth-type API_KEY --auth-key sk-abc123
+
+# Basic authentication
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
+
+# Environment variables
+export DAGLOOM_AUTH_TYPE=API_KEY
+export DAGLOOM_AUTH_KEY=sk-abc123
+dagloom serve
+```
+
+### Authentication Flow
+
+```
+Incoming Request
+  │
+  ├─ Path in PUBLIC_PATHS? ──yes──→ Skip auth → call_next()
+  │
+  no
+  │
+  ├─ Extract Authorization header
+  │   ├─ Bearer <token>  → credential = token
+  │   └─ Basic <base64>  → credential = decoded username:password
+  │
+  ├─ AuthProvider.authenticate(credential)
+  │   ├─ True  → call_next()
+  │   └─ False → 401 Unauthorized
+  │
+  └─ No header → 401 Unauthorized
+```
+
+---
+
 ## Future Roadmap
 
 ### Planned Features
@@ -1007,6 +1216,8 @@ dagloom secret delete DB_PASSWORD       # removes from DB
 8. ~~**Cache Dependency Invalidation**: Automatic downstream cache invalidation on output changes~~ ✅ Implemented in v0.7.0
 9. ~~**Per-Node Executor Hints**: `@node(executor="process"|"async"|"auto")` for fine-grained dispatch control~~ ✅ Implemented in v0.8.0
 10. ~~**PyPI Package & One-Click Demo**: `dagloom demo --run` for an instant ETL demo pipeline~~ ✅ Implemented in v0.10.0
+11. ~~**Authentication**: Middleware-based API key / Basic auth for the web server~~ ✅ Implemented in v0.11.0
+11. ~~**Authentication**: Middleware-based API key / Basic auth for the web server~~ ✅ Implemented in v0.11.0
 
 ### Non-Goals
 

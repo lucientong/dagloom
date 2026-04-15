@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-04-15
+
+### Added
+
+- **Basic Auth & API Key authentication**: Opt-in HTTP authentication for the REST API and Web UI
+  - `AuthProvider` abstract base class with pluggable provider pattern
+  - `APIKeyAuth` — Bearer token authentication with layered key resolution (direct → SecretStore → `DAGLOOM_API_KEY` env var)
+  - `BasicAuth` — HTTP Basic authentication with PBKDF2-SHA256 password hashing (100,000 iterations), layered credential resolution (direct → SecretStore → `DAGLOOM_AUTH_USERNAME`/`DAGLOOM_AUTH_PASSWORD` env vars)
+  - `NoAuth` — null provider for development (always succeeds)
+- **Authentication middleware** (`dagloom/server/middleware.py`):
+  - `AuthMiddleware` — Starlette-based HTTP middleware for Bearer/Basic credential extraction and validation
+  - `RequireAuth` — FastAPI dependency for mandatory authentication (raises HTTP 401)
+  - `OptionalAuth` — FastAPI dependency for optional authentication (returns guest user)
+  - Public path exclusion: `/health`, `/docs`, `/openapi.json`, `/redoc` bypass authentication
+- **CLI authentication options**: `dagloom serve --auth-type API_KEY --auth-key sk-abc123` or `--auth-type BASIC_AUTH --auth-key admin:password`
+- **Environment variable configuration**: `DAGLOOM_AUTH_TYPE` and `DAGLOOM_AUTH_KEY` for container/CI deployments
+- `create_app()` factory function accepts `auth_type` and `auth_key` parameters
+- 62 new tests covering auth providers, middleware, and end-to-end integration (100% patch coverage)
+
+### Changed
+
+- `dagloom/server/app.py`: `create_app()` now accepts `auth_type` and `auth_key` parameters; adds `AuthMiddleware` when configured
+- `dagloom/cli/main.py`: `serve` command accepts `--auth-type` and `--auth-key` options
+- `dagloom/security/__init__.py`: exports `AuthProvider`, `APIKeyAuth`, `BasicAuth`, `NoAuth`
+
 ## [0.10.0] - 2026-04-15
 
 ### Added
@@ -233,7 +258,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/lucientong/dagloom/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/lucientong/dagloom/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/lucientong/dagloom/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/lucientong/dagloom/compare/v0.7.0...v0.8.0

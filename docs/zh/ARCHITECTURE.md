@@ -13,6 +13,7 @@
 - [存储层](#存储层)
 - [Web 服务](#web-服务)
 - [安全](#安全)
+- [认证](#认证)
 - [未来规划](#未来规划)
 
 ---
@@ -143,6 +144,7 @@ dagloom/
 │   ├── app.py           # FastAPI 应用工厂（启动调度器）
 │   ├── api.py           # REST API 端点（管道 + 调度）
 │   ├── codegen.py       # 双向代码 ↔ DAG 转换（支持 round-trip 保真）
+│   ├── middleware.py    # AuthMiddleware、RequireAuth、OptionalAuth
 │   ├── watcher.py       # 文件监控，实现代码 → UI 实时同步
 │   └── ws.py            # WebSocket 连接管理器
 ├── store/
@@ -150,6 +152,7 @@ dagloom/
 │   └── db.py            # SQLite 数据库层
 ├── security/
 │   ├── __init__.py
+│   ├── auth.py          # AuthProvider ABC、APIKeyAuth、BasicAuth、NoAuth
 │   ├── encryption.py    # Encryptor 类（基于 Fernet），DecryptionError，generate_key()
 │   └── secrets.py       # SecretStore，分层解析（env → .env → 加密数据库）
 ├── demo/
@@ -990,6 +993,212 @@ dagloom secret delete DB_PASSWORD       # 从数据库删除
 
 ---
 
+## 认证
+
+### 请求认证（v0.11.0）— `dagloom/security/auth.py`、`dagloom/server/middleware.py`
+
+Dagloom 支持可选的请求级认证。启用后，所有 API 端点都需要有效凭据——公共路径除外（`/health`、`/docs`、`/openapi.json`、`/redoc`）。
+
+### 认证提供者（`dagloom/security/auth.py`）
+
+`AuthProvider` 是一个抽象基类，内置三种实现：
+
+```python
+class AuthProvider(ABC):
+    @abstractmethod
+    async def authenticate(self, credential: str) -> bool: ...
+
+class APIKeyAuth(AuthProvider):
+    """根据配置的 API Key 验证 Bearer 令牌。"""
+
+class BasicAuth(AuthProvider):
+    """验证 HTTP Basic 凭据（用户名:密码）。"""
+
+class NoAuth(AuthProvider):
+    """空操作提供者——始终返回 True。认证未启用时使用。"""
+```
+
+| 提供者 | `--auth-type` | 凭据格式 | 请求头 |
+|--------|---------------|---------|--------|
+| `APIKeyAuth` | `API_KEY` | 原始 API Key 字符串 | `Authorization: Bearer sk-abc123` |
+| `BasicAuth` | `BASIC_AUTH` | `用户名:密码` | `Authorization: Basic <base64>` |
+| `NoAuth` | *（默认）* | — | — |
+
+### 中间件（`dagloom/server/middleware.py`）
+
+`AuthMiddleware` 是一个 Starlette 中间件，拦截每个请求：
+
+1. 跳过公共路径：`/health`、`/docs`、`/openapi.json`、`/redoc`
+2. 从 `Authorization` 请求头中提取凭据（Bearer 或 Basic 方案）
+3. 调用 `AuthProvider.authenticate(credential)` 进行验证
+4. 验证失败时返回 `401 Unauthorized`
+
+```python
+class AuthMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, auth_provider: AuthProvider):
+        super().__init__(app)
+        self.auth_provider = auth_provider
+
+    async def dispatch(self, request, call_next):
+        if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        # 提取并验证凭据...
+```
+
+### FastAPI 依赖项
+
+提供两个依赖项用于路由级别的控制：
+
+- **`RequireAuth`** — 凭据缺失或无效时返回 `401`
+- **`OptionalAuth`** — 允许未认证访问；将认证状态写入 `request.state.authenticated` 供下游逻辑使用
+
+### 配置
+
+通过 CLI 参数或环境变量配置认证：
+
+| CLI 参数 | 环境变量 | 描述 |
+|---------|---------|------|
+| `--auth-type` | `DAGLOOM_AUTH_TYPE` | `API_KEY`、`BASIC_AUTH` 或留空（禁用） |
+| `--auth-key` | `DAGLOOM_AUTH_KEY` | API Key 或 `用户名:密码` 字符串 |
+
+```bash
+# API Key 认证
+dagloom serve --auth-type API_KEY --auth-key sk-abc123
+
+# Basic 认证
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
+
+# 环境变量
+export DAGLOOM_AUTH_TYPE=API_KEY
+export DAGLOOM_AUTH_KEY=sk-abc123
+dagloom serve
+```
+
+### 认证流程
+
+```
+传入请求
+  │
+  ├─ 路径在 PUBLIC_PATHS 中？ ──是──→ 跳过认证 → call_next()
+  │
+  否
+  │
+  ├─ 提取 Authorization 请求头
+  │   ├─ Bearer <token>  → credential = token
+  │   └─ Basic <base64>  → credential = 解码后的 用户名:密码
+  │
+  ├─ AuthProvider.authenticate(credential)
+  │   ├─ True  → call_next()
+  │   └─ False → 401 Unauthorized
+  │
+  └─ 无请求头 → 401 Unauthorized
+```
+
+---
+
+## 认证
+
+### 请求认证（v0.11.0）— `dagloom/security/auth.py`、`dagloom/server/middleware.py`
+
+Dagloom 支持可选的请求级认证。启用后，所有 API 端点都需要有效凭据——公共路径除外（`/health`、`/docs`、`/openapi.json`、`/redoc`）。
+
+### 认证提供者（`dagloom/security/auth.py`）
+
+`AuthProvider` 是一个抽象基类，内置三种实现：
+
+```python
+class AuthProvider(ABC):
+    @abstractmethod
+    async def authenticate(self, credential: str) -> bool: ...
+
+class APIKeyAuth(AuthProvider):
+    """根据配置的 API Key 验证 Bearer 令牌。"""
+
+class BasicAuth(AuthProvider):
+    """验证 HTTP Basic 凭据（用户名:密码）。"""
+
+class NoAuth(AuthProvider):
+    """空操作提供者——始终返回 True。认证未启用时使用。"""
+```
+
+| 提供者 | `--auth-type` | 凭据格式 | 请求头 |
+|--------|---------------|---------|--------|
+| `APIKeyAuth` | `API_KEY` | 原始 API Key 字符串 | `Authorization: Bearer sk-abc123` |
+| `BasicAuth` | `BASIC_AUTH` | `用户名:密码` | `Authorization: Basic <base64>` |
+| `NoAuth` | *（默认）* | — | — |
+
+### 中间件（`dagloom/server/middleware.py`）
+
+`AuthMiddleware` 是一个 Starlette 中间件，拦截每个请求：
+
+1. 跳过公共路径：`/health`、`/docs`、`/openapi.json`、`/redoc`
+2. 从 `Authorization` 请求头中提取凭据（Bearer 或 Basic 方案）
+3. 调用 `AuthProvider.authenticate(credential)` 进行验证
+4. 验证失败时返回 `401 Unauthorized`
+
+```python
+class AuthMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, auth_provider: AuthProvider):
+        super().__init__(app)
+        self.auth_provider = auth_provider
+
+    async def dispatch(self, request, call_next):
+        if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        # 提取并验证凭据...
+```
+
+### FastAPI 依赖项
+
+提供两个依赖项用于路由级别的控制：
+
+- **`RequireAuth`** — 凭据缺失或无效时返回 `401`
+- **`OptionalAuth`** — 允许未认证访问；将认证状态写入 `request.state.authenticated` 供下游逻辑使用
+
+### 配置
+
+通过 CLI 参数或环境变量配置认证：
+
+| CLI 参数 | 环境变量 | 描述 |
+|---------|---------|------|
+| `--auth-type` | `DAGLOOM_AUTH_TYPE` | `API_KEY`、`BASIC_AUTH` 或留空（禁用） |
+| `--auth-key` | `DAGLOOM_AUTH_KEY` | API Key 或 `用户名:密码` 字符串 |
+
+```bash
+# API Key 认证
+dagloom serve --auth-type API_KEY --auth-key sk-abc123
+
+# Basic 认证
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
+
+# 环境变量
+export DAGLOOM_AUTH_TYPE=API_KEY
+export DAGLOOM_AUTH_KEY=sk-abc123
+dagloom serve
+```
+
+### 认证流程
+
+```
+传入请求
+  │
+  ├─ 路径在 PUBLIC_PATHS 中？ ──是──→ 跳过认证 → call_next()
+  │
+  否
+  │
+  ├─ 提取 Authorization 请求头
+  │   ├─ Bearer <token>  → credential = token
+  │   └─ Basic <base64>  → credential = 解码后的 用户名:密码
+  │
+  ├─ AuthProvider.authenticate(credential)
+  │   ├─ True  → call_next()
+  │   └─ False → 401 Unauthorized
+  │
+  └─ 无请求头 → 401 Unauthorized
+```
+
+---
+
 ## 未来规划
 
 ### 计划中的功能
@@ -1004,6 +1213,7 @@ dagloom secret delete DB_PASSWORD       # 从数据库删除
 8. ~~**缓存依赖失效**：节点输出变化时自动级联清除下游缓存~~ ✅ 已在 v0.7.0 实现
 9. ~~**逐节点执行器提示**：`@node(executor="process"|"async"|"auto")` 实现细粒度分派控制~~ ✅ 已在 v0.8.0 实现
 10. ~~**PyPI 发布 & 一键演示**：`dagloom demo --run` 即刻体验 ETL 演示管道~~ ✅ 已在 v0.10.0 实现
+11. ~~**认证**：基于中间件的 API Key / Basic 认证~~ ✅ 已在 v0.11.0 实现
 
 ### 非目标
 

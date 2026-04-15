@@ -1,5 +1,7 @@
 # 🧶 Dagloom
 
+[![CI](https://github.com/lucientong/dagloom/actions/workflows/ci.yml/badge.svg)](https://github.com/lucientong/dagloom/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/lucientong/dagloom/graph/badge.svg?token=YF4RTF2TBU)](https://codecov.io/gh/lucientong/dagloom)
 [![PyPI version](https://img.shields.io/pypi/v/dagloom.svg)](https://pypi.org/project/dagloom/)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/dagloom?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/dagloom)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
@@ -279,6 +281,34 @@ await store.set("API_KEY", "sk-abc123")
 value = await store.get("API_KEY")  # Checks env → .env → encrypted DB
 ```
 
+
+### HTTP Authentication
+
+Protect your Dagloom server with API Key or Basic authentication:
+
+```bash
+# API Key authentication
+dagloom serve --auth-type API_KEY --auth-key sk-your-secret-key
+
+# Basic authentication (username:password)
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:mypassword
+
+# No authentication (default)
+dagloom serve
+```
+
+```python
+# Client: API Key authentication
+import httpx
+
+headers = {"Authorization": "Bearer sk-your-secret-key"}
+response = httpx.get("http://localhost:8000/api/pipelines", headers=headers)
+
+# Client: Basic authentication
+response = httpx.get("http://localhost:8000/api/pipelines", auth=("admin", "mypassword"))
+```
+
+
 ### Start the Web UI
 
 ```bash
@@ -309,7 +339,7 @@ Single Process Architecture
 dagloom/
 ├── core/       # @node decorator, Pipeline class, DAG validation
 ├── scheduler/  # Cron/interval scheduler, asyncio executor, caching, checkpoint
-├── security/   # Encrypted secret store, Fernet encryption
+├── security/   # Encrypted secret store, Fernet encryption, HTTP authentication (API Key + Basic Auth)
 ├── connectors/ # PostgreSQL, MySQL, S3, HTTP connectors
 ├── server/     # FastAPI REST API + WebSocket
 ├── store/      # SQLite storage layer

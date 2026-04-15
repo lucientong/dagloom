@@ -412,6 +412,116 @@ Single Process Architecture
 | `dagloom secret delete <name>` | Delete a secret |
 | `dagloom version` | Show version info |
 
+## Authentication (v0.11.0)
+
+Dagloom supports optional request-level authentication for the web server. By default, auth is disabled (open access).
+
+### Enabling Authentication
+
+Pass `--auth-type` and `--auth-key` to `dagloom serve`:
+
+```bash
+# API key authentication — clients send "Authorization: Bearer <key>"
+dagloom serve --auth-type API_KEY --auth-key sk-abc123
+
+# Basic authentication — clients send standard HTTP Basic credentials
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
+```
+
+Or use environment variables:
+
+```bash
+export DAGLOOM_AUTH_TYPE=API_KEY
+export DAGLOOM_AUTH_KEY=sk-abc123
+dagloom serve
+```
+
+### Public Paths
+
+The following paths are always accessible without credentials:
+
+- `/health` — health check
+- `/docs` — Swagger UI
+- `/openapi.json` — OpenAPI spec
+- `/redoc` — ReDoc UI
+
+### Calling Authenticated Endpoints
+
+```bash
+# API key
+curl -H "Authorization: Bearer sk-abc123" http://localhost:8000/api/pipelines
+
+# Basic auth
+curl -u admin:password http://localhost:8000/api/pipelines
+```
+
+```python
+import httpx
+
+# API key
+resp = httpx.get("http://localhost:8000/api/pipelines",
+                 headers={"Authorization": "Bearer sk-abc123"})
+
+# Basic auth
+resp = httpx.get("http://localhost:8000/api/pipelines",
+                 auth=("admin", "password"))
+```
+
+## Authentication (v0.11.0)
+
+Dagloom supports optional request-level authentication for the web server. By default, auth is disabled (open access).
+
+### Enabling Authentication
+
+Pass `--auth-type` and `--auth-key` to `dagloom serve`:
+
+```bash
+# API key authentication — clients send "Authorization: Bearer <key>"
+dagloom serve --auth-type API_KEY --auth-key sk-abc123
+
+# Basic authentication — clients send standard HTTP Basic credentials
+dagloom serve --auth-type BASIC_AUTH --auth-key admin:password
+```
+
+Or use environment variables:
+
+```bash
+export DAGLOOM_AUTH_TYPE=API_KEY
+export DAGLOOM_AUTH_KEY=sk-abc123
+dagloom serve
+```
+
+### Public Paths
+
+The following paths are always accessible without credentials:
+
+- `/health` — health check
+- `/docs` — Swagger UI
+- `/openapi.json` — OpenAPI spec
+- `/redoc` — ReDoc UI
+
+### Calling Authenticated Endpoints
+
+```bash
+# API key
+curl -H "Authorization: Bearer sk-abc123" http://localhost:8000/api/pipelines
+
+# Basic auth
+curl -u admin:password http://localhost:8000/api/pipelines
+```
+
+```python
+import httpx
+
+# API key
+resp = httpx.get("http://localhost:8000/api/pipelines",
+                 headers={"Authorization": "Bearer sk-abc123"})
+
+# Basic auth
+resp = httpx.get("http://localhost:8000/api/pipelines",
+                 auth=("admin", "password"))
+```
+
 ## Connectors
 
 Dagloom provides built-in connectors for common data sources:
