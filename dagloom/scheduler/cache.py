@@ -43,13 +43,13 @@ def compute_input_hash(*args: Any, **kwargs: Any) -> str:
     for arg in args:
         try:
             hasher.update(pickle.dumps(arg))
-        except (pickle.PicklingError, TypeError):
+        except (pickle.PicklingError, TypeError, AttributeError):
             hasher.update(repr(arg).encode())
     for key in sorted(kwargs.keys()):
         hasher.update(key.encode())
         try:
             hasher.update(pickle.dumps(kwargs[key]))
-        except (pickle.PicklingError, TypeError):
+        except (pickle.PicklingError, TypeError, AttributeError):
             hasher.update(repr(kwargs[key]).encode())
     return hasher.hexdigest()
 
@@ -235,7 +235,7 @@ class CacheManager:
         hasher = hashlib.sha256()
         try:
             hasher.update(pickle.dumps(value))
-        except (pickle.PicklingError, TypeError):
+        except (pickle.PicklingError, TypeError, AttributeError):
             hasher.update(repr(value).encode())
         return hasher.hexdigest()
 
