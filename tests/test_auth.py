@@ -144,8 +144,8 @@ class TestBasicAuth:
     @pytest.mark.asyncio
     async def test_basic_auth_direct(self) -> None:
         """Direct credentials authentication succeeds."""
-        auth = BasicAuth(username="admin", password="secret")
-        creds = self._encode_creds("admin", "secret")
+        auth = BasicAuth(username="admin", password="test-only-pwd")
+        creds = self._encode_creds("admin", "test-only-pwd")
         result = await auth.authenticate(creds)
         assert result is not None
         assert result["username"] == "admin"
@@ -154,15 +154,15 @@ class TestBasicAuth:
     @pytest.mark.asyncio
     async def test_basic_auth_direct_wrong_username(self) -> None:
         """Wrong username fails."""
-        auth = BasicAuth(username="admin", password="secret")
-        creds = self._encode_creds("user", "secret")
+        auth = BasicAuth(username="admin", password="test-only-pwd")
+        creds = self._encode_creds("user", "test-only-pwd")
         result = await auth.authenticate(creds)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_basic_auth_direct_wrong_password(self) -> None:
         """Wrong password fails."""
-        auth = BasicAuth(username="admin", password="secret")
+        auth = BasicAuth(username="admin", password="test-only-pwd")
         creds = self._encode_creds("admin", "wrong")
         result = await auth.authenticate(creds)
         assert result is None
@@ -194,14 +194,14 @@ class TestBasicAuth:
     @pytest.mark.asyncio
     async def test_basic_auth_malformed_base64(self) -> None:
         """Malformed base64 fails gracefully."""
-        auth = BasicAuth(username="admin", password="secret")
+        auth = BasicAuth(username="admin", password="test-only-pwd")
         result = await auth.authenticate("not-valid-base64!!!")
         assert result is None
 
     @pytest.mark.asyncio
     async def test_basic_auth_malformed_creds_no_colon(self) -> None:
         """Credentials without colon fail."""
-        auth = BasicAuth(username="admin", password="secret")
+        auth = BasicAuth(username="admin", password="test-only-pwd")
         creds = base64.b64encode(b"admin-no-colon").decode()
         result = await auth.authenticate(creds)
         assert result is None
@@ -217,7 +217,7 @@ class TestBasicAuth:
 
     def test_password_hashing_consistency(self) -> None:
         """Same password+salt produces same hash."""
-        auth = BasicAuth(username="test", password="secret")
+        auth = BasicAuth(username="test", password="test-only-pwd")
         password = "mysecret"
         hash1 = auth._hash_password(password)
         # Extract salt and re-hash.
@@ -228,29 +228,29 @@ class TestBasicAuth:
 
     def test_password_verification_success(self) -> None:
         """Password verification succeeds for correct password."""
-        auth = BasicAuth(username="test", password="secret")
+        auth = BasicAuth(username="test", password="test-only-pwd")
         password = "mypassword"
         hashed = auth._hash_password(password)
         assert auth._verify_password(password, hashed) is True
 
     def test_password_verification_failure(self) -> None:
         """Password verification fails for wrong password."""
-        auth = BasicAuth(username="test", password="secret")
+        auth = BasicAuth(username="test", password="test-only-pwd")
         password = "correctpassword"
         hashed = auth._hash_password(password)
         assert auth._verify_password("wrongpassword", hashed) is False
 
     def test_password_verification_malformed_hash(self) -> None:
         """Verification fails for malformed hash."""
-        auth = BasicAuth(username="test", password="secret")
+        auth = BasicAuth(username="test", password="test-only-pwd")
         assert auth._verify_password("password", "not-a-valid-hash") is False
 
     @pytest.mark.asyncio
     async def test_basic_auth_hashed_password(self) -> None:
         """Authentication works with hashed passwords."""
-        auth = BasicAuth(username="admin", password="secret")
+        auth = BasicAuth(username="admin", password="test-only-pwd")
         # Pre-hash the password.
-        password = "secretpass"
+        password = "test-hashed-pwd"
         hashed = auth._hash_password(password)
         # Create a new auth with the hashed password.
         auth2 = BasicAuth(username="admin", password=hashed)
@@ -261,7 +261,7 @@ class TestBasicAuth:
     @pytest.mark.asyncio
     async def test_basic_auth_custom_hash_iterations(self) -> None:
         """Custom PBKDF2 iterations parameter works."""
-        auth = BasicAuth(username="admin", password="secret", hash_iterations=50000)
+        auth = BasicAuth(username="admin", password="test-only-pwd", hash_iterations=50000)
         hash1 = auth._hash_password("password")
         # Verify it can be used.
         assert auth._verify_password("password", hash1) is True

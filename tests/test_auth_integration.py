@@ -53,7 +53,7 @@ async def app_basic_auth(tmp_path: Path) -> FastAPI:  # type: ignore[misc]
     db = Database(tmp_path / "test_basic.db")
     await db.connect()
     set_state("db", db)
-    app = create_app(auth_type="BASIC_AUTH", auth_key="testuser:testpass")
+    app = create_app(auth_type="BASIC_AUTH", auth_key="testuser:test-only-pwd")
     yield app
     await db.close()
 
@@ -103,7 +103,7 @@ class TestAppCreation:
 
     def test_create_app_with_basic_auth(self) -> None:
         """App can be created with Basic authentication."""
-        app = create_app(auth_type="BASIC_AUTH", auth_key="admin:password")
+        app = create_app(auth_type="BASIC_AUTH", auth_key="admin:test-only-pwd")
         assert app is not None
 
     def test_create_app_api_key_missing_key(self) -> None:
@@ -199,7 +199,7 @@ class TestAPIEndpointsWithBasicAuth:
     @pytest.mark.asyncio
     async def test_list_pipelines_with_valid_basic_auth(self, client_basic: Any) -> None:
         """List pipelines with valid Basic auth credentials."""
-        creds = base64.b64encode(b"testuser:testpass").decode()
+        creds = base64.b64encode(b"testuser:test-only-pwd").decode()
         resp = await client_basic.get(
             "/api/pipelines",
             headers={"Authorization": f"Basic {creds}"},

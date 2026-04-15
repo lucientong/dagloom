@@ -58,7 +58,7 @@ async def bearer_auth_app() -> FastAPI:  # type: ignore[misc]
 async def basic_auth_app() -> FastAPI:  # type: ignore[misc]
     """Create a FastAPI app with Basic auth middleware."""
     app = FastAPI()
-    auth = BasicAuth(username="admin", password="secret")
+    auth = BasicAuth(username="admin", password="test-only-pwd")
     app.add_middleware(AuthMiddleware, auth_provider=auth)
 
     @app.get("/data")
@@ -157,7 +157,7 @@ class TestAuthMiddlewareBasic:
     @pytest.mark.asyncio
     async def test_basic_auth_valid(self, basic_client: Any) -> None:
         """Valid Basic auth credentials are validated."""
-        creds = base64.b64encode(b"admin:secret").decode()
+        creds = base64.b64encode(b"admin:test-only-pwd").decode()
         resp = await basic_client.get(
             "/data",
             headers={"Authorization": f"Basic {creds}"},
@@ -193,7 +193,7 @@ class TestAuthMiddlewareBasic:
     @pytest.mark.asyncio
     async def test_basic_auth_case_insensitive(self, basic_client: Any) -> None:
         """Basic scheme is case-insensitive."""
-        creds = base64.b64encode(b"admin:secret").decode()
+        creds = base64.b64encode(b"admin:test-only-pwd").decode()
         resp = await basic_client.get(
             "/data",
             headers={"Authorization": f"basic {creds}"},
