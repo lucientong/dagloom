@@ -216,6 +216,33 @@ pipeline.run(url="https://example.com/data.csv")
 
 **Cache dependency invalidation**: When `fetch_data` produces a different output on re-run, Dagloom automatically invalidates the caches for `clean` and `save` so they re-execute with fresh data. No manual cache management needed.
 
+### Per-Node Executor Hints
+
+Control execution strategy per node — run CPU-heavy work in separate processes while keeping I/O-bound nodes in the event loop:
+
+```python
+from dagloom import node, AsyncExecutor
+
+@node
+def fetch(url: str) -> list:
+    """I/O-bound: runs in thread (default)."""
+    return [1, 2, 3]
+
+@node(executor="process")
+def transform(data: list) -> list:
+    """CPU-bound: runs in a separate process."""
+    return [x ** 2 for x in data]
+
+@node
+async def save(data: list) -> str:
+    """Async: awaited directly on the event loop."""
+    return f"Saved {len(data)} records"
+
+pipeline = fetch >> transform >> save
+executor = AsyncExecutor(pipeline)
+result = await executor.execute(url="https://example.com")
+```
+
 ### Start the Web UI
 
 ```bash

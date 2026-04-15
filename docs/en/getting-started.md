@@ -99,6 +99,54 @@ pipeline = fetch >> transform >> save
 # automatically invalidated and both re-execute with the new data.
 ```
 
+### 5. Per-Node Executor Hints (v0.8.0)
+
+You can now control how each node is executed by passing the `executor` hint to `@node`. This lets you mix CPU-bound process isolation with async I/O in the same pipeline.
+
+- `@node(executor="process")` — runs the function in a separate process (ideal for CPU-bound work)
+- `@node(executor="async")` — forces asyncio execution
+- `@node(executor="auto")` (default) — uses threads for sync functions, `await` for async functions
+
+Executor hints work with both `AsyncExecutor` and `ProcessExecutor`.
+
+```python
+@node
+def fetch(url: str) -> list:
+    return [1, 2, 3]
+
+@node(executor="process")
+def heavy_compute(data: list) -> list:
+    return [x ** 2 for x in data]
+
+pipeline = fetch >> heavy_compute
+```
+
+In this example `fetch` uses the default executor (threaded, since it is a sync function), while `heavy_compute` is offloaded to a separate process — keeping the main event loop responsive while crunching numbers.
+
+### 5. Per-Node Executor Hints (v0.8.0)
+
+You can now control how each node is executed by passing the `executor` hint to `@node`. This lets you mix CPU-bound process isolation with async I/O in the same pipeline.
+
+- `@node(executor="process")` — runs the function in a separate process (ideal for CPU-bound work)
+- `@node(executor="async")` — forces asyncio execution
+- `@node(executor="auto")` (default) — uses threads for sync functions, `await` for async functions
+
+Executor hints work with both `AsyncExecutor` and `ProcessExecutor`.
+
+```python
+@node
+def fetch(url: str) -> list:
+    return [1, 2, 3]
+
+@node(executor="process")
+def heavy_compute(data: list) -> list:
+    return [x ** 2 for x in data]
+
+pipeline = fetch >> heavy_compute
+```
+
+In this example `fetch` uses the default executor (threaded, since it is a sync function), while `heavy_compute` is offloaded to a separate process — keeping the main event loop responsive while crunching numbers.
+
 ## Core Concepts
 
 ### Node

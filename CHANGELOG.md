@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-04-15
+
+### Added
+
+- **Per-node executor hints (`executor="process"`)**: Control how each node is executed — in the asyncio event loop thread, a separate thread, or a dedicated process
+  - `@node(executor="process")` dispatches CPU-bound sync functions to a `ProcessPoolExecutor`
+  - `@node(executor="async")` forces asyncio-based execution
+  - `@node(executor="auto")` (default) preserves existing behavior: threads for sync, await for async
+  - `EXECUTOR_HINTS` constant exported from `dagloom.core.node`
+- `AsyncExecutor` now accepts `max_process_workers` parameter to configure the process pool size
+- `AsyncExecutor` automatically creates/shuts down a `ProcessPoolExecutor` on-demand when any node uses `executor="process"`
+- 19 new tests covering executor hints, per-node dispatch, mixed pipelines, and ProcessExecutor backward compatibility
+
+### Changed
+
+- `Node.__init__` now accepts optional `executor` parameter (default `"auto"`, backward compatible)
+- `@node()` decorator accepts `executor` keyword argument
+- `AsyncExecutor._run_callable()` now checks `node_obj.executor` hint to decide between thread and process dispatch
+- `ProcessExecutor` simplified — now delegates to `AsyncExecutor` by setting all `"auto"` nodes to `"process"` executor hint
+- `Node.__repr__` includes `executor` when not `"auto"`
+
 ## [0.7.0] - 2026-04-14
 
 ### Added
@@ -174,7 +195,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/lucientong/dagloom/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/lucientong/dagloom/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lucientong/dagloom/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lucientong/dagloom/compare/v0.4.0...v0.5.0

@@ -99,6 +99,30 @@ pipeline = fetch >> transform >> save
 # 两者将使用新数据重新执行。
 ```
 
+### 5. 逐节点执行器提示（v0.8.0）
+
+现在可以通过向 `@node` 传递 `executor` 参数来控制每个节点的执行方式，从而在同一管道中混合使用 CPU 密集型进程隔离与异步 I/O。
+
+- `@node(executor="process")` — 在独立进程中运行函数（适用于 CPU 密集型任务）
+- `@node(executor="async")` — 强制使用 asyncio 执行
+- `@node(executor="auto")`（默认）— 同步函数使用线程，异步函数使用 `await`
+
+执行器提示可与 `AsyncExecutor` 和 `ProcessExecutor` 配合使用。
+
+```python
+@node
+def fetch(url: str) -> list:
+    return [1, 2, 3]
+
+@node(executor="process")
+def heavy_compute(data: list) -> list:
+    return [x ** 2 for x in data]
+
+pipeline = fetch >> heavy_compute
+```
+
+在此示例中，`fetch` 使用默认执行器（因为它是同步函数，所以使用线程），而 `heavy_compute` 被分派到独立进程中执行——在进行大量计算时不会阻塞主事件循环。
+
 ## 核心概念
 
 ### 节点（Node）
