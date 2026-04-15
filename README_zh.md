@@ -339,7 +339,7 @@ dagloom/
 ├── core/       # @node 装饰器、Pipeline 类、DAG 验证
 ├── scheduler/  # Cron/间隔调度器、asyncio 执行器、缓存、检查点
 ├── security/   # 加密密钥管理、Fernet 加密、HTTP 身份验证（API Key + Basic Auth）
-├── connectors/ # PostgreSQL、MySQL、S3、HTTP 连接器
+├── connectors/ # PostgreSQL、MySQL、S3、HTTP、MongoDB、Redis、Kafka 连接器
 ├── server/     # FastAPI REST API + WebSocket
 ├── store/      # SQLite 存储层
 └── cli/        # Click CLI（serve、run、list、inspect、scheduler、secret）
@@ -441,7 +441,14 @@ async with PostgresConnector(config) as pg:
     rows = await pg.execute("SELECT * FROM users WHERE active = $1", True)
 ```
 
-**可用连接器**：PostgreSQL、MySQL、S3/MinIO、HTTP API
+**可用连接器**：PostgreSQL、MySQL、S3/MinIO、HTTP API、MongoDB、Redis、Kafka
+
+```bash
+pip install dagloom[mongodb]        # MongoDB (motor)
+pip install dagloom[redis]          # Redis (redis-py)
+pip install dagloom[kafka]          # Kafka (aiokafka)
+pip install dagloom[all-connectors] # 所有连接器
+```
 
 ## 📖 文档
 

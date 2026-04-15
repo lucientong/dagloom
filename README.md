@@ -316,6 +316,29 @@ dagloom serve
 # Open http://localhost:8000 in your browser
 ```
 
+## 🔌 Connectors
+
+Dagloom includes built-in connectors for common data sources:
+
+**Available connectors**: PostgreSQL, MySQL, S3/MinIO, HTTP API, MongoDB, Redis, Kafka
+
+```bash
+pip install dagloom[connectors]     # PostgreSQL, MySQL, S3, HTTP
+pip install dagloom[mongodb]        # MongoDB (motor)
+pip install dagloom[redis]          # Redis (redis-py)
+pip install dagloom[kafka]          # Kafka (aiokafka)
+pip install dagloom[all-connectors] # All connectors
+```
+
+```python
+from dagloom.connectors import ConnectionConfig
+from dagloom.connectors.mongodb import MongoDBConnector
+
+config = ConnectionConfig(host="localhost", database="mydb")
+async with MongoDBConnector(config) as mongo:
+    docs = await mongo.execute("find", collection="users", filter={"active": True})
+```
+
 ## 🏗️ Architecture
 
 ```
@@ -340,7 +363,7 @@ dagloom/
 ├── core/       # @node decorator, Pipeline class, DAG validation
 ├── scheduler/  # Cron/interval scheduler, asyncio executor, caching, checkpoint
 ├── security/   # Encrypted secret store, Fernet encryption, HTTP authentication (API Key + Basic Auth)
-├── connectors/ # PostgreSQL, MySQL, S3, HTTP connectors
+├── connectors/ # PostgreSQL, MySQL, S3, HTTP, MongoDB, Redis, Kafka connectors
 ├── server/     # FastAPI REST API + WebSocket
 ├── store/      # SQLite storage layer
 └── cli/        # Click CLI (serve, run, list, inspect, scheduler, secret)

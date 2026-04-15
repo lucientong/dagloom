@@ -12,6 +12,24 @@ pip install dagloom
 pip install dagloom[connectors]
 ```
 
+安装额外连接器（v0.12.0）：
+
+```bash
+pip install dagloom[mongodb]          # MongoDB
+pip install dagloom[redis]            # Redis
+pip install dagloom[kafka]            # Kafka
+pip install dagloom[all-connectors]   # 所有连接器
+```
+
+安装额外连接器（v0.12.0）：
+
+```bash
+pip install dagloom[mongodb]          # MongoDB
+pip install dagloom[redis]            # Redis
+pip install dagloom[kafka]            # Kafka
+pip install dagloom[all-connectors]   # 所有连接器
+```
+
 ## 一键体验
 
 无需编写代码，即可快速体验 Dagloom：
@@ -466,7 +484,7 @@ resp = httpx.get("http://localhost:8000/api/pipelines",
 
 ## 连接器
 
-Dagloom 内置了常见数据源的连接器：
+Dagloom 内置了常见数据源的连接器。所有连接器遵循 `BaseConnector` 模式，支持异步上下文管理器。
 
 ```python
 from dagloom.connectors import ConnectionConfig
@@ -481,4 +499,59 @@ async with PostgresConnector(config) as pg:
     rows = await pg.execute("SELECT * FROM users WHERE active = $1", True)
 ```
 
-可用连接器：**PostgreSQL**、**MySQL**、**S3/MinIO**、**HTTP API**。
+### MongoDB（v0.12.0）
+
+依赖 `motor>=3.3`。安装：`pip install dagloom[mongodb]`
+
+```python
+from dagloom.connectors.mongodb import MongoDBConnector
+
+config = ConnectionConfig(host="localhost", port=27017, database="mydb")
+
+async with MongoDBConnector(config) as mongo:
+    await mongo.insert_one("users", {"name": "Alice", "age": 30})
+    user = await mongo.find_one("users", {"name": "Alice"})
+    users = await mongo.find("users", {"age": {"$gte": 18}})
+    await mongo.update_one("users", {"name": "Alice"}, {"$set": {"age": 31}})
+    await mongo.delete_one("users", {"name": "Alice"})
+    results = await mongo.aggregate("orders", [{"$group": {"_id": "$status", "count": {"$sum": 1}}}])
+```
+
+支持操作：`find`、`find_one`、`insert_one`、`insert_many`、`update_one`、`update_many`、`delete_one`、`delete_many`、`aggregate`、`count`。
+
+### Redis（v0.12.0）
+
+依赖 `redis>=5.0`。安装：`pip install dagloom[redis]`
+
+```python
+from dagloom.connectors.redis import RedisConnector
+
+config = ConnectionConfig(host="localhost", port=6379)
+
+async with RedisConnector(config) as r:
+    await r.set("key", "value")
+    value = await r.get("key")
+    await r.hset("user:1", "name", "Alice")
+    name = await r.hget("user:1", "name")
+    await r.delete("key")
+```
+
+命令直接映射：`get`、`set`、`delete`、`hget`、`hset` 等。
+
+### Kafka（v0.12.0）
+
+依赖 `aiokafka>=0.9`。安装：`pip install dagloom[kafka]`
+
+```python
+from dagloom.connectors.kafka import KafkaConnector
+
+config = ConnectionConfig(host="localhost", port=9092)
+
+async with KafkaConnector(config) as kafka:
+    await kafka.send("my-topic", value=b'{"event": "order_created"}')
+    messages = await kafka.consume("my-topic", timeout=5.0)
+```
+
+支持操作：`send`（生产消息）、`consume`（临时消费者）。
+
+可用连接器：**PostgreSQL**、**MySQL**、**S3/MinIO**、**HTTP API**、**MongoDB**、**Redis**、**Kafka**。

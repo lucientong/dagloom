@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-04-16
+
+### Added
+
+- **MongoDB connector** (`dagloom/connectors/mongodb.py`): Async MongoDB connector using `motor>=3.3`
+  - `MongoDBConnector` — full CRUD operations: `find`, `find_one`, `insert_one`, `insert_many`, `update_one`, `update_many`, `delete_one`, `delete_many`, `aggregate`, `count`
+  - Connection URI auto-built from config (supports `mongodb+srv` via `extra["srv"]`)
+  - Default port: 27017, connection pool size configurable
+- **Redis connector** (`dagloom/connectors/redis.py`): Async Redis connector using `redis>=5.0`
+  - `RedisConnector` — direct command mapping: `get`, `set`, `delete`, `hget`, `hset`, `lpush`, `rpush`, `lrange`, `keys`, `exists`, `expire`, `ttl`, and any other redis-py command
+  - `config.database` used as Redis DB index; supports SSL and connection pooling
+  - Default port: 6379, `decode_responses=True` by default
+- **Kafka connector** (`dagloom/connectors/kafka.py`): Async Kafka connector using `aiokafka>=0.9`
+  - `KafkaConnector` — `send` operation (produce via `AIOKafkaProducer`), `consume` operation (temporary `AIOKafkaConsumer`)
+  - Bootstrap servers from `config.host` (comma-separated for multiple brokers)
+  - Default port: 9092, SSL support via `config.ssl`
+- Optional dependency extras: `pip install dagloom[mongodb]`, `dagloom[redis]`, `dagloom[kafka]`, `dagloom[all-connectors]`
+- 48 new tests covering all three connectors (mock-based, no external services required)
+
+### Changed
+
+- `pyproject.toml`: added `mongodb`, `redis`, `kafka`, `all-connectors` optional dependency groups
+
 ## [0.11.0] - 2026-04-15
 
 ### Added
@@ -258,7 +281,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/lucientong/dagloom/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lucientong/dagloom/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/lucientong/dagloom/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/lucientong/dagloom/compare/v0.8.0...v0.9.0
