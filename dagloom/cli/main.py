@@ -145,6 +145,76 @@ def version() -> None:
     click.echo(f"Python {sys.version}")
 
 
+@cli.command()
+@click.option(
+    "--run",
+    "run_only",
+    is_flag=True,
+    help="Run the demo pipeline directly (no server).",
+)
+@click.option("--host", default="127.0.0.1", help="Bind host (server mode).")
+@click.option("--port", default=8000, type=int, help="Bind port (server mode).")
+@click.option("--records", default=100, type=int, help="Number of demo records to generate.")
+def demo(run_only: bool, host: str, port: int, records: int) -> None:
+    """Run the built-in demo ETL pipeline.
+
+    Without --run, starts the web server with the demo pipeline registered.
+    With --run, executes the pipeline directly and prints the report.
+    """
+    from dagloom.demo import create_demo_pipeline
+
+    pipeline = create_demo_pipeline(name="demo_etl")
+
+    if run_only:
+        click.echo("Running demo ETL pipeline ...")
+        try:
+            result = pipeline.run(num_records=records)
+            click.echo(result)
+            click.echo("\n✅ Demo pipeline completed successfully.")
+        except Exception as exc:
+            click.echo(f"❌ Demo pipeline failed: {exc}", err=True)
+            sys.exit(1)
+        return
+
+    # Server mode: register the pipeline and start serving.
+    import asyncio
+    import tempfile
+
+    import uvicorn
+
+    from dagloom.store.db import Database
+
+    async def _setup_and_serve() -> None:
+        tmpdir = tempfile.mkdtemp(prefix="dagloom-demo-")
+        db_path = Path(tmpdir) / "demo.db"
+
+        db = Database(db_path)
+        await db.connect()
+        await db.save_pipeline(
+            pipeline_id="demo_etl",
+            name="demo_etl",
+            description="Built-in demo ETL pipeline",
+            node_names=list(pipeline.nodes.keys()),
+            edges=pipeline.edges,
+        )
+        await db.close()
+
+        click.echo(f"Demo database: {db_path}")
+        click.echo(f"Starting Dagloom demo server on http://{host}:{port}")
+        click.echo("Press Ctrl+C to stop.\n")
+
+        config = uvicorn.Config(
+            "dagloom.server.app:create_app",
+            host=host,
+            port=port,
+            factory=True,
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+
+    asyncio.run(_setup_and_serve())
+
+
 # -- Scheduler commands -------------------------------------------------------
 
 

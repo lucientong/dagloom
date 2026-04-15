@@ -326,7 +326,18 @@ class AsyncExecutor:
             node_args: tuple[Any, ...] = ()
             node_kwargs = dict(inputs)
         else:
-            preds = self.pipeline.predecessors(node_name)
+            preds = [
+                p
+                for p in self.pipeline.predecessors(node_name)
+                if not (skipped_nodes and p in skipped_nodes)
+            ]
+            if len(preds) == 0:
+                # All predecessors were skipped — skip this node too.
+                info.mark_skipped()
+                logger.debug("Node %s skipped (all predecessors skipped).", node_name)
+                if skipped_nodes is not None:
+                    skipped_nodes.add(node_name)
+                return
             if len(preds) == 1:
                 node_args = (ctx.get_output(preds[0]),)
                 node_kwargs = {}

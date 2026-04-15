@@ -152,6 +152,12 @@ dagloom/
 │   ├── __init__.py
 │   ├── encryption.py    # Encryptor 类（基于 Fernet），DecryptionError，generate_key()
 │   └── secrets.py       # SecretStore，分层解析（env → .env → 加密数据库）
+├── demo/
+│   ├── __init__.py
+│   └── etl_pipeline.py  # create_demo_pipeline() 工厂函数 — 一键体验 ETL 演示管道
+├── demo/
+│   ├── __init__.py
+│   └── etl_pipeline.py  # create_demo_pipeline() 工厂函数 — 一键体验 ETL 演示管道
 ├── connectors/
 │   ├── __init__.py
 │   ├── base.py          # 抽象连接器接口
@@ -161,7 +167,7 @@ dagloom/
 │   └── http.py          # HTTP API 连接器
 └── cli/
     ├── __init__.py
-    └── main.py          # Click CLI 命令（serve、run、scheduler、secret 等）
+    └── main.py          # Click CLI 命令（serve、run、demo、scheduler、secret 等）
 ```
 
 ---
@@ -997,6 +1003,7 @@ dagloom secret delete DB_PASSWORD       # 从数据库删除
 7. ~~**通知节点**：Email / Webhook（Slack、企微、飞书）管道事件告警~~ ✅ 已在 v0.5.0 实现
 8. ~~**缓存依赖失效**：节点输出变化时自动级联清除下游缓存~~ ✅ 已在 v0.7.0 实现
 9. ~~**逐节点执行器提示**：`@node(executor="process"|"async"|"auto")` 实现细粒度分派控制~~ ✅ 已在 v0.8.0 实现
+10. ~~**PyPI 发布 & 一键演示**：`dagloom demo --run` 即刻体验 ETL 演示管道~~ ✅ 已在 v0.10.0 实现
 
 ### 非目标
 
