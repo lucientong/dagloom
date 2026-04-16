@@ -316,6 +316,32 @@ dagloom serve
 # Open http://localhost:8000 in your browser
 ```
 
+## 📊 Observability
+
+Track node execution metrics (wall time, success/failure rate, retries) across pipeline runs:
+
+```python
+from dagloom import AsyncExecutor
+from dagloom.store.db import Database
+
+db = Database()
+await db.connect()
+
+executor = AsyncExecutor(pipeline, metrics_db=db)
+result = await executor.execute(url="https://example.com")
+
+# Query aggregate stats per node
+stats = await db.get_node_stats("my_pipeline")
+# [{"node_id": "fetch", "total_runs": 50, "avg_ms": 120.5, "p95_ms": 350.2, ...}]
+
+# Execution history with per-node detail
+history = await db.get_execution_history("my_pipeline", limit=10)
+```
+
+**REST API**:
+- `GET /api/metrics/{pipeline_id}` — per-node stats (runs, failure rate, p50/p95 latency)
+- `GET /api/history/{pipeline_id}?limit=20` — execution history with node metrics
+
 ## 🔌 Connectors
 
 Dagloom includes built-in connectors for common data sources:

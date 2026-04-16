@@ -225,6 +225,43 @@ await store.set("API_KEY", "sk-abc123")
 value = await store.get("API_KEY")
 ```
 
+### 7. Observability & Metrics (v0.13.0)
+
+Dagloom can automatically record per-node timing and outcome data. Pass a `Database` instance to `AsyncExecutor` to enable metrics:
+
+```python
+from dagloom.scheduler import AsyncExecutor
+from dagloom.store import Database
+
+db = Database()
+await db.connect()
+
+executor = AsyncExecutor(pipeline, metrics_db=db)
+result = await executor.execute(url="https://...")
+```
+
+Every node execution is recorded to the `node_metrics` table with wall-clock time, outcome, retry count, and error message. No changes to node code are needed.
+
+#### Querying Metrics
+
+```python
+# Aggregate stats per node: total_runs, success/failure count, avg/min/max/p50/p95 ms
+stats = await db.get_node_stats("my_pipeline")
+
+# Recent execution history with per-node metrics attached
+history = await db.get_execution_history("my_pipeline", limit=20)
+```
+
+#### REST API
+
+```bash
+# Per-node aggregate stats
+curl http://localhost:8000/api/metrics/my_pipeline
+
+# Execution history with node detail
+curl http://localhost:8000/api/history/my_pipeline?limit=10
+```
+
 ## Core Concepts
 
 ### Node
@@ -405,6 +442,8 @@ Single Process Architecture
 | GET | `/api/secrets` | List all secrets |
 | POST | `/api/secrets` | Create or update a secret |
 | DELETE | `/api/secrets/{name}` | Delete a secret |
+| GET | `/api/metrics/{pipeline_id}` | Per-node aggregate stats |
+| GET | `/api/history/{pipeline_id}?limit=N` | Execution history with node detail |
 
 ### CLI Commands
 

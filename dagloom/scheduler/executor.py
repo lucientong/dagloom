@@ -67,6 +67,8 @@ class AsyncExecutor:
             ``executor="process"``. If ``None`` (default), a process pool
             is created on-demand with the system default worker count.
             Set to ``0`` to disable process execution (treat as ``"auto"``).
+        metrics_db: Optional ``Database`` instance for recording per-node
+            execution metrics (wall time, outcome, retries).
         on_node_start: Optional callback invoked before each node executes.
             Signature: ``(node_name: str, ctx: ExecutionContext) -> None``
             (may also be an async function).
@@ -84,6 +86,7 @@ class AsyncExecutor:
         cache_manager: CacheManager | None = None,
         checkpoint_manager: CheckpointManager | None = None,
         max_process_workers: int | None = None,
+        metrics_db: Any | None = None,
         on_node_start: NodeHook | None = None,
         on_node_end: NodeHook | None = None,
     ) -> None:
@@ -93,6 +96,7 @@ class AsyncExecutor:
         self.cache_manager = cache_manager
         self.checkpoint_manager = checkpoint_manager
         self.max_process_workers = max_process_workers
+        self.metrics_db = metrics_db
         self.on_node_start = on_node_start
         self.on_node_end = on_node_end
         self._process_pool: ProcessPoolExecutor | None = None
@@ -392,6 +396,9 @@ class AsyncExecutor:
                     max_attempts,
                 )
 
+                # --- Metrics: record success ---
+                await self._record_metric(node_name, info, pipeline_id, execution_id)
+
                 # --- Checkpoint: save success ---
                 if ckpt is not None:
                     await ckpt.save_state(
@@ -464,6 +471,10 @@ class AsyncExecutor:
                 logger.debug("Node %s retrying in %.1fs ...", node_name, delay)
                 await asyncio.sleep(delay)
 
+        # --- Metrics: record failure (all retries exhausted) ---
+        if info.status == NodeStatus.FAILED:
+            await self._record_metric(node_name, info, pipeline_id, execution_id)
+
         # --- Checkpoint: save failure (all retries exhausted) ---
         if ckpt is not None and info.status == NodeStatus.FAILED:
             await ckpt.save_state(
@@ -483,6 +494,30 @@ class AsyncExecutor:
                     await _rv
             except Exception:
                 logger.warning("on_node_end hook raised for node %s.", node_name)
+
+    async def _record_metric(
+        self,
+        node_name: str,
+        info: Any,
+        pipeline_id: str,
+        execution_id: str,
+    ) -> None:
+        """Record a node execution metric to the metrics DB (if configured)."""
+        if self.metrics_db is None:
+            return
+        wall_time_ms = (info.duration or 0.0) * 1000.0
+        try:
+            await self.metrics_db.save_node_metric(
+                pipeline_id=pipeline_id,
+                execution_id=execution_id,
+                node_id=node_name,
+                wall_time_ms=wall_time_ms,
+                outcome=info.status.value,
+                retry_count=info.retry_count,
+                error_message=info.error,
+            )
+        except Exception:
+            logger.warning("Failed to record metric for node %s.", node_name)
 
     async def _run_callable(self, node_obj: Node, *args: Any, **kwargs: Any) -> Any:
         """Run a node function according to its executor hint.

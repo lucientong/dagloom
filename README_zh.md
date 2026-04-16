@@ -424,6 +424,32 @@ result = asyncio.run(executor.execute(url="https://..."))
 | DELETE | `/api/notifications/{id}` | 删除通知渠道 |
 | POST | `/api/notifications/test` | 发送测试通知 |
 
+## 📊 可观测性
+
+跟踪节点执行指标（耗时、成功/失败率、重试次数）：
+
+```python
+from dagloom import AsyncExecutor
+from dagloom.store.db import Database
+
+db = Database()
+await db.connect()
+
+executor = AsyncExecutor(pipeline, metrics_db=db)
+result = await executor.execute(url="https://example.com")
+
+# 查询每个节点的聚合统计
+stats = await db.get_node_stats("my_pipeline")
+# [{"node_id": "fetch", "total_runs": 50, "avg_ms": 120.5, "p95_ms": 350.2, ...}]
+
+# 执行历史（含每个节点的详细指标）
+history = await db.get_execution_history("my_pipeline", limit=10)
+```
+
+**REST API**：
+- `GET /api/metrics/{pipeline_id}` — 每个节点的统计信息（运行次数、失败率、p50/p95 延迟）
+- `GET /api/history/{pipeline_id}?limit=20` — 执行历史（含节点指标）
+
 ## 📚 连接器
 
 Dagloom 内置常见数据源的连接器：
