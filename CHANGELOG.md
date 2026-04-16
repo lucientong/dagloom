@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-16
+
+### 🎉 Stable Release
+
+Dagloom v1.0.0 marks the first stable release — a full-featured, production-ready DAG pipeline engine for Python.
+
+### Added
+
+- **Web UI enhancements for v1.0**:
+  - Integrated `usePipeline` and `useWebSocket` hooks into the main App — real-time pipeline execution with backend fallback to demo data
+  - `PipelineList` component — sidebar listing all pipelines with selection, node count, and last updated
+  - `MetricsDashboard` component — per-node execution stats with recharts bar charts (success/failure counts, avg/p95 latency)
+  - `VersionHistory` component — timeline UI for pipeline version history with expandable details
+  - Error toast notifications for API failures with auto-dismiss
+  - Loading spinners during API calls
+  - Fixed HTML title from generic "Vite + React + TS" to "Dagloom — Pipeline Engine"
+  - Removed unused `App.css` boilerplate
+- **Comprehensive connector test coverage**: 46 new mock-based tests for PostgreSQL, MySQL, S3/MinIO, and HTTP connectors
+  - PostgresConnector: connect, disconnect, health_check, execute, execute_one, execute_val, context manager, import error
+  - MySQLConnector: connect, disconnect, health_check, execute (cursor-based), context manager, import error
+  - S3Connector: connect, disconnect, health_check, get/put/delete/list operations, MinIO endpoint, import error
+  - HTTPConnector: connect, disconnect, health_check, GET/POST (JSON/text), basic auth, base URL config, import error
+- Extended `usePipeline` hook with `getMetrics()`, `getVersions()`, `getSecrets()`, `clearError()` methods
+
+### Changed
+
+- `pyproject.toml`: Development Status upgraded from "3 - Alpha" to "5 - Production/Stable"
+- `web/src/App.tsx`: Complete rewrite integrating all hooks and new components
+- `web/src/hooks/usePipeline.ts`: Extended with metrics/versions/secrets endpoints
+- `web/src/types/index.ts`: Added `NodeMetric`, `PipelineMetrics`, `PipelineVersion` interfaces
+
+### Summary — v0.3 → v1.0 Journey
+
+| Version | Feature |
+|---------|---------|
+| v0.4.0 | Built-in scheduler (Cron/Interval, APScheduler) |
+| v0.5.0 | Email + Webhook notifications |
+| v0.6.0 | Bidirectional code↔UI sync (AST codegen + file watcher) |
+| v0.7.0 | Cache dependency invalidation (SHA-256 + NetworkX) |
+| v0.8.0 | Per-node executor hints (auto/async/process) |
+| v0.9.0 | Credential management (Fernet encryption + SecretStore) |
+| v0.10.0 | One-click demo pipeline + CLI |
+| v0.11.0 | HTTP authentication (API Key + Basic Auth) |
+| v0.12.0 | MongoDB, Redis, Kafka connectors |
+| v0.13.0 | Observability (node metrics, execution history, REST API) |
+| v0.14.0 | Pipeline version management (snapshots + structured diff) |
+| **v1.0.0** | **Web UI polish, full test coverage, production-stable** |
+
+**Total: 548 tests, 7 connectors, 12 API endpoint groups, 4 notification channels.**
+
 ## [0.14.0] - 2026-04-16
 
 ### Added
@@ -325,7 +375,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/lucientong/dagloom/compare/v0.14.0...v1.0.0
 [0.14.0]: https://github.com/lucientong/dagloom/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/lucientong/dagloom/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/lucientong/dagloom/compare/v0.11.0...v0.12.0

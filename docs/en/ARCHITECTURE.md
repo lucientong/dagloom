@@ -1,5 +1,7 @@
 # Dagloom Architecture
 
+> **v1.0.0 Stable Release** — Dagloom is now production-stable. All APIs documented here are covered by semantic versioning guarantees.
+
 This document provides a comprehensive overview of Dagloom's architecture, design decisions, and implementation details.
 
 ## Table of Contents
@@ -99,8 +101,8 @@ pipeline = fetch >> transform
 Unlike Airflow (requires PostgreSQL + Redis + Celery + message broker), Dagloom runs entirely within a single Python process:
 
 ```bash
-pip install dagloom
-dagloom serve  # That's it!
+pip install dagloom   # v1.0.0 — production-stable
+dagloom serve         # That's it!
 ```
 
 ### 4. Resume from Failure
@@ -809,6 +811,9 @@ def create_app() -> FastAPI:
 | GET | `/api/secrets` | List all secret keys |
 | POST | `/api/secrets` | Create or update a secret |
 | DELETE | `/api/secrets/{key}` | Delete a secret |
+| GET | `/api/pipelines/{id}/versions?limit=N` | List pipeline version history |
+| GET | `/api/versions/{hash}` | Get specific version snapshot |
+| GET | `/api/versions/{hash_a}/diff/{hash_b}` | Structured diff between two versions |
 
 ### WebSocket (`dagloom/server/ws.py`)
 
@@ -1337,6 +1342,16 @@ PUT /api/pipelines/{id}/dag
   ├─ Write .py file + update DB
   └─ Broadcast dag_updated via WebSocket
 ```
+
+---
+
+## Web UI Components (v1.0.0)
+
+The React-based Web UI includes the following key components:
+
+- **PipelineList** — Browsable list of all registered pipelines with status indicators and quick-action buttons (run, pause, inspect)
+- **MetricsDashboard** — Real-time and historical per-node metrics visualization (success rate, latency percentiles, throughput) powered by the `/api/metrics` endpoint
+- **VersionHistory** — Side-by-side version comparison UI with structured diffs (added/removed nodes and edges, unified code diff) backed by the `/api/versions` endpoints
 
 ---
 

@@ -134,6 +134,7 @@ cython_debug/
 .vscode/
 .cursor/
 .codebuddy/
+.claude/
 *.swp
 *.swo
 *~

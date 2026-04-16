@@ -1,5 +1,7 @@
 # Dagloom 架构文档
 
+> **v1.0.0 正式稳定版** — Dagloom 现已达到生产稳定状态。本文档中所有 API 均受语义化版本控制保证。
+
 本文档全面介绍 Dagloom 的架构设计、技术决策和实现细节。
 
 ## 目录
@@ -15,6 +17,7 @@
 - [安全](#安全)
 - [认证](#认证)
 - [可观测性](#可观测性)
+- [管道版本管理](#管道版本管理)
 - [未来规划](#未来规划)
 
 ---
@@ -98,7 +101,7 @@ pipeline = fetch >> transform
 与 Airflow（需要 PostgreSQL + Redis + Celery + 消息队列）不同，Dagloom 完全在单个 Python 进程中运行：
 
 ```bash
-pip install dagloom
+pip install dagloom   # v1.0.0 — 生产稳定版
 dagloom serve  # 就这样！
 ```
 
@@ -827,6 +830,9 @@ def create_app() -> FastAPI:
 | GET | `/api/secrets` | 列出所有密钥名称 |
 | POST | `/api/secrets` | 创建或更新密钥 |
 | DELETE | `/api/secrets/{key}` | 删除密钥 |
+| GET | `/api/pipelines/{id}/versions?limit=N` | 列出管道版本历史 |
+| GET | `/api/versions/{hash}` | 获取指定版本快照 |
+| GET | `/api/versions/{hash_a}/diff/{hash_b}` | 两个版本之间的结构化差异 |
 
 ### WebSocket — `dagloom/server/ws.py`
 
@@ -1269,6 +1275,80 @@ AsyncExecutor._execute_node()
   ├─ 记录结束时间
   └─ INSERT INTO node_metrics (pipeline_id, execution_id, node_id, wall_time_ms, outcome, retry_count, error_message, recorded_at)
 ```
+
+---
+
+## 管道版本管理
+
+### 管道版本追踪（v0.14.0）
+
+Dagloom 自动追踪管道 DAG 的版本变更。每当通过 UI 更新 DAG（`PUT /api/pipelines/{id}/dag`）时，系统会自动保存一个版本快照——支持完整历史查看、回溯检查以及任意两个版本之间的结构化差异比对。
+
+### 数据库表
+
+```sql
+CREATE TABLE pipeline_versions (
+    version_hash TEXT PRIMARY KEY,
+    pipeline_id TEXT NOT NULL,
+    code_snapshot TEXT NOT NULL,
+    node_names TEXT NOT NULL,       -- JSON 数组
+    edges TEXT NOT NULL,            -- JSON 数组 [[src, tgt], ...]
+    description TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (pipeline_id) REFERENCES pipelines(id)
+);
+```
+
+### 自动版本化
+
+通过 `PUT /api/pipelines/{id}/dag` 保存 DAG 时，服务端计算代码快照的 **SHA-256 哈希** 并持久化一条版本记录。写入操作是幂等的——相同的 DAG 状态会产生相同的哈希，重复写入会被静默跳过（`INSERT OR IGNORE`）。
+
+### 数据库方法（`dagloom/store/db.py`）
+
+```python
+# 幂等版本保存（INSERT OR IGNORE）
+await db.save_pipeline_version(hash, pipeline_id, code_snapshot, node_names, edges)
+
+# 列出版本历史（按时间倒序）
+versions = await db.list_pipeline_versions(pipeline_id, limit=50)
+```
+
+### REST API
+
+| 方法 | 端点 | 描述 |
+|------|------|------|
+| GET | `/api/pipelines/{id}/versions?limit=N` | 列出版本历史（按时间倒序，默认限制 50 条） |
+| GET | `/api/versions/{hash}` | 获取指定版本快照（代码、节点、边） |
+| GET | `/api/versions/{hash_a}/diff/{hash_b}` | 两个版本之间的结构化差异 |
+
+### Diff 端点
+
+`GET /api/versions/{hash_a}/diff/{hash_b}` 返回结构化差异：
+
+- **节点**：`added`（新增）、`removed`（删除）、`unchanged`（未变）列表
+- **边**：`added`（新增）、`removed`（删除）、`unchanged`（未变）列表
+- **代码**：统一差异格式（通过 Python `difflib` 生成）
+
+### 版本管理流程
+
+```
+PUT /api/pipelines/{id}/dag
+  ├─ dag_to_code() → 生成 Python 源码
+  ├─ SHA-256(code_snapshot) → version_hash
+  ├─ db.save_pipeline_version(hash, id, code, nodes, edges)  # INSERT OR IGNORE
+  ├─ 写入 .py 文件 + 更新数据库
+  └─ 通过 WebSocket 广播 dag_updated
+```
+
+---
+
+## Web UI 组件（v1.0.0）
+
+基于 React 的 Web UI 包含以下关键组件：
+
+- **PipelineList** — 可浏览的管道列表，显示状态指示器和快捷操作按钮（运行、暂停、查看）
+- **MetricsDashboard** — 实时和历史的逐节点指标可视化（成功率、延迟百分位、吞吐量），数据来自 `/api/metrics` 端点
+- **VersionHistory** — 并排版本对比 UI，支持结构化差异展示（新增/删除的节点和边、统一格式的代码差异），数据来自 `/api/versions` 端点
 
 ---
 

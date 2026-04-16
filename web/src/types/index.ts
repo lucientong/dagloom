@@ -58,6 +58,27 @@ export interface LogEntry {
   level: 'info' | 'warning' | 'error';
 }
 
+export interface NodeMetric {
+  node_id: string;
+  success_count: number;
+  failure_count: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+}
+
+export interface PipelineMetrics {
+  pipeline_id: string;
+  total_runs: number;
+  nodes: NodeMetric[];
+}
+
+export interface PipelineVersion {
+  version: number;
+  hash: string;
+  description: string;
+  created_at: string;
+}
+
 export const NODE_STATUS_COLORS: Record<NodeStatusType, string> = {
   pending: '#94A3B8',
   running: '#3B82F6',

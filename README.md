@@ -309,12 +309,30 @@ response = httpx.get("http://localhost:8000/api/pipelines", auth=("admin", "mypa
 ```
 
 
-### Start the Web UI
+### Web UI
 
 ```bash
 dagloom serve
 # Open http://localhost:8000 in your browser
 ```
+
+The Web UI provides:
+- **DAG Editor** — drag-and-drop pipeline visualization with ReactFlow
+- **Pipeline List** — sidebar listing all registered pipelines
+- **Metrics Dashboard** — per-node execution stats with bar charts (success/failure rate, p50/p95 latency)
+- **Version History** — timeline of pipeline snapshots with diff support
+- **Execution Log** — real-time log viewer via WebSocket
+- **Node Inspector** — click any node to view config (retry, cache, timeout)
+
+For frontend development:
+
+```bash
+cd web
+npm install
+npm run dev    # Vite dev server with HMR, proxies /api to backend
+```
+
+Tech stack: React 18 + TypeScript + Vite + Tailwind CSS + ReactFlow + Recharts
 
 ## 🔖 Pipeline Versioning
 
