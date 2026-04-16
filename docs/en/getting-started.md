@@ -1,9 +1,11 @@
 # Getting Started with Dagloom
 
+> **v1.0.0 Stable Release** — Dagloom is now production-stable. The API is fully covered by semantic versioning guarantees.
+
 ## Installation
 
 ```bash
-pip install dagloom
+pip install dagloom   # v1.0.0 — production-stable
 ```
 
 For data source connectors (PostgreSQL, MySQL, S3, HTTP):
@@ -262,6 +264,51 @@ curl http://localhost:8000/api/metrics/my_pipeline
 curl http://localhost:8000/api/history/my_pipeline?limit=10
 ```
 
+### 8. Pipeline Version Management (v0.14.0)
+
+Dagloom automatically versions your pipeline DAG every time you save changes via the UI. Each version is identified by a SHA-256 hash of the code snapshot — identical saves are deduplicated.
+
+#### Listing Versions
+
+```bash
+# List recent versions for a pipeline
+curl http://localhost:8000/api/pipelines/my_pipeline/versions?limit=10
+```
+
+```python
+versions = await db.list_pipeline_versions("my_pipeline", limit=10)
+# Returns: [{"version_hash": "a1b2...", "created_at": "...", ...}, ...]
+```
+
+#### Inspecting a Version
+
+```bash
+# Get the full snapshot (code, nodes, edges) for a specific version
+curl http://localhost:8000/api/versions/a1b2c3d4...
+```
+
+#### Comparing Versions
+
+```bash
+# Structured diff between two versions: added/removed/unchanged nodes and edges, plus unified code diff
+curl http://localhost:8000/api/versions/a1b2c3d4.../diff/e5f6a7b8...
+```
+
+The diff response includes:
+- **Nodes**: `added`, `removed`, `unchanged`
+- **Edges**: `added`, `removed`, `unchanged`
+- **Code**: Unified diff (Python `difflib` format)
+
+### 9. Web UI Components (v1.0.0)
+
+The Dagloom Web UI now includes three dedicated views:
+
+- **PipelineList** — Browse all registered pipelines with status indicators and quick-action buttons (run, pause, inspect)
+- **MetricsDashboard** — Real-time and historical per-node metrics visualization (success rate, latency percentiles, throughput)
+- **VersionHistory** — Side-by-side version comparison with structured diffs (added/removed nodes and edges, unified code diff)
+
+Access the Web UI by running `dagloom serve` and opening `http://localhost:8000` in your browser.
+
 ## Core Concepts
 
 ### Node
@@ -444,6 +491,9 @@ Single Process Architecture
 | DELETE | `/api/secrets/{name}` | Delete a secret |
 | GET | `/api/metrics/{pipeline_id}` | Per-node aggregate stats |
 | GET | `/api/history/{pipeline_id}?limit=N` | Execution history with node detail |
+| GET | `/api/pipelines/{id}/versions?limit=N` | List pipeline version history |
+| GET | `/api/versions/{hash}` | Get specific version snapshot |
+| GET | `/api/versions/{hash_a}/diff/{hash_b}` | Structured diff between two versions |
 
 ### CLI Commands
 

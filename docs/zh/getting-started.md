@@ -1,9 +1,11 @@
 # Dagloom 快速入门
 
+> **v1.0.0 正式稳定版** — Dagloom 现已达到生产稳定状态。所有 API 均受语义化版本控制保证。
+
 ## 安装
 
 ```bash
-pip install dagloom
+pip install dagloom   # v1.0.0 — 生产稳定版
 ```
 
 安装数据源连接器（PostgreSQL、MySQL、S3、HTTP）：
@@ -262,6 +264,51 @@ curl http://localhost:8000/api/metrics/my_pipeline
 curl http://localhost:8000/api/history/my_pipeline?limit=10
 ```
 
+### 8. 管道版本管理（v0.14.0）
+
+Dagloom 在每次通过 UI 保存 DAG 变更时自动创建版本快照。每个版本由代码快照的 SHA-256 哈希标识——相同的保存操作会自动去重。
+
+#### 查看版本历史
+
+```bash
+# 列出管道的最近版本
+curl http://localhost:8000/api/pipelines/my_pipeline/versions?limit=10
+```
+
+```python
+versions = await db.list_pipeline_versions("my_pipeline", limit=10)
+# 返回: [{"version_hash": "a1b2...", "created_at": "...", ...}, ...]
+```
+
+#### 查看指定版本
+
+```bash
+# 获取指定版本的完整快照（代码、节点、边）
+curl http://localhost:8000/api/versions/a1b2c3d4...
+```
+
+#### 版本比对
+
+```bash
+# 两个版本之间的结构化差异：新增/删除/未变的节点和边，以及统一格式的代码差异
+curl http://localhost:8000/api/versions/a1b2c3d4.../diff/e5f6a7b8...
+```
+
+差异响应包含：
+- **节点**：`added`（新增）、`removed`（删除）、`unchanged`（未变）
+- **边**：`added`（新增）、`removed`（删除）、`unchanged`（未变）
+- **代码**：统一差异格式（Python `difflib`）
+
+### 9. Web UI 组件（v1.0.0）
+
+Dagloom Web UI 现已包含三个专用视图：
+
+- **PipelineList** — 浏览所有已注册管道，显示状态指示器和快捷操作按钮（运行、暂停、查看）
+- **MetricsDashboard** — 实时和历史的逐节点指标可视化（成功率、延迟百分位、吞吐量）
+- **VersionHistory** — 并排版本对比，支持结构化差异展示（新增/删除的节点和边、统一格式的代码差异）
+
+运行 `dagloom serve` 并在浏览器中打开 `http://localhost:8000` 即可访问 Web UI。
+
 ## 核心概念
 
 ### 节点（Node）
@@ -447,6 +494,9 @@ result = asyncio.run(executor.execute(url="https://..."))
 | DELETE | `/api/secrets/{name}` | 删除密钥 |
 | GET | `/api/metrics/{pipeline_id}` | 逐节点聚合统计 |
 | GET | `/api/history/{pipeline_id}?limit=N` | 执行历史，附带节点详情 |
+| GET | `/api/pipelines/{id}/versions?limit=N` | 列出管道版本历史 |
+| GET | `/api/versions/{hash}` | 获取指定版本快照 |
+| GET | `/api/versions/{hash_a}/diff/{hash_b}` | 两个版本之间的结构化差异 |
 
 ### CLI 命令
 

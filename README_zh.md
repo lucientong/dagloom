@@ -308,12 +308,30 @@ response = httpx.get("http://localhost:8000/api/pipelines", headers=headers)
 response = httpx.get("http://localhost:8000/api/pipelines", auth=("admin", "mypassword"))
 ```
 
-### 启动 Web UI
+### Web UI
 
 ```bash
 dagloom serve
 # 在浏览器中打开 http://localhost:8000
 ```
+
+Web UI 提供：
+- **DAG 编辑器** — 基于 ReactFlow 的拖拽式管道可视化
+- **管道列表** — 侧边栏列出所有已注册管道
+- **指标仪表盘** — 每个节点的执行统计图表（成功/失败率、p50/p95 延迟）
+- **版本历史** — 管道快照时间线，支持版本对比
+- **执行日志** — 通过 WebSocket 实时查看日志
+- **节点检查器** — 点击节点查看配置（重试、缓存、超时）
+
+前端开发：
+
+```bash
+cd web
+npm install
+npm run dev    # Vite 开发服务器，自动代理 /api 到后端
+```
+
+技术栈：React 18 + TypeScript + Vite + Tailwind CSS + ReactFlow + Recharts
 
 ## 🏗️ 架构
 
