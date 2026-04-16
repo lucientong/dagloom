@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-04-16
+
+### Added
+
+- **`parallel()` helper** (FB-001): Declarative fan-out / fan-in DAGs — `parallel(fetch_a, fetch_b, fetch_c) >> merge_node`. Accepts `Node` and `Pipeline` objects; downstream merge node receives `{predecessor_name: output}` dict.
+- **Root node input filtering** (FB-002): `pipeline.run(**inputs)` now filters kwargs per root node by `inspect.signature` — only matching parameters are passed. Nodes with `**kwargs` receive all inputs (backward compatible).
+- **Pipeline inputs on ExecutionContext** (FB-003): `ctx.pipeline_inputs` stores the original `**inputs` dict; `ctx.get_input(key, default)` convenience accessor. Available to all nodes via context.
+- **Enhanced `Pipeline.visualize()`** (FB-005): Now shows per-node metadata — `retry`, `cache`, `timeout`, `executor` settings inline.
+- 20 new tests covering all feedback fixes.
+
+### Changed
+
+- `dagloom/core/pipeline.py`: added `parallel()` and `_filter_inputs()` functions; updated `run()` to filter root inputs; enhanced `visualize()` output.
+- `dagloom/core/context.py`: added `pipeline_inputs` field and `get_input()` method to `ExecutionContext`.
+- `dagloom/scheduler/executor.py`: `_execute_node()` filters root inputs; `_execute_dag()` stores inputs on context.
+- `dagloom/__init__.py`: exported `parallel`.
+
 ## [1.0.0] - 2026-04-16
 
 ### 🎉 Stable Release
@@ -375,7 +392,8 @@ Dagloom v1.0.0 marks the first stable release — a full-featured, production-re
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/lucientong/dagloom/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lucientong/dagloom/compare/v0.14.0...v1.0.0
 [0.14.0]: https://github.com/lucientong/dagloom/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/lucientong/dagloom/compare/v0.12.0...v0.13.0

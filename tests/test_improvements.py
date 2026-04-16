@@ -386,6 +386,7 @@ class TestPublicApi:
             "Pipeline",
             "SchedulerService",
             "node",
+            "parallel",
             "__version__",
         }
         assert expected == set(dagloom.__all__)
@@ -797,4 +798,4 @@ class TestPublicApiBranch:
     def test_version_is_030(self) -> None:
         import dagloom
 
-        assert dagloom.__version__ == "1.0.0"
+        assert dagloom.__version__ == "1.0.1"

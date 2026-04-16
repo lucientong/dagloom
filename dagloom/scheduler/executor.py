@@ -139,7 +139,10 @@ class AsyncExecutor:
         roots = set(self.pipeline.root_nodes())
         leaves = self.pipeline.leaf_nodes()
 
-        ctx = ExecutionContext(pipeline_name=self.pipeline.name or "unnamed")
+        ctx = ExecutionContext(
+            pipeline_name=self.pipeline.name or "unnamed",
+            pipeline_inputs=dict(inputs),
+        )
 
         # --- Checkpoint: init ---
         ckpt = self.checkpoint_manager
@@ -327,8 +330,11 @@ class AsyncExecutor:
 
         # Resolve the arguments that will be passed to this node.
         if is_root:
+            from dagloom.core.pipeline import _filter_inputs
+
+            filtered = _filter_inputs(node_obj, inputs)
             node_args: tuple[Any, ...] = ()
-            node_kwargs = dict(inputs)
+            node_kwargs = filtered
         else:
             preds = [
                 p

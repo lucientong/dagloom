@@ -71,6 +71,32 @@ result = pipeline.run(name="World")
 print(result)  # 🎉 HELLO, WORLD! 🎉
 ```
 
+### Fan-out / Fan-in (Parallel)
+
+Use `parallel()` to run independent nodes concurrently and merge results:
+
+```python
+from dagloom import node, parallel
+
+@node(cache=True, retry=3)
+def fetch_users() -> list[dict]:
+    return [{"id": 1, "name": "Alice"}]
+
+@node(cache=True, retry=3)
+def fetch_orders() -> list[dict]:
+    return [{"id": 101, "user_id": 1}]
+
+@node
+def merge(inputs: dict[str, list]) -> dict:
+    # inputs = {"fetch_users": [...], "fetch_orders": [...]}
+    return {"users": inputs["fetch_users"], "orders": inputs["fetch_orders"]}
+
+pipeline = parallel(fetch_users, fetch_orders) >> merge
+result = pipeline.run()
+```
+
+> **Note**: When a node has multiple predecessors, it receives a `dict` keyed by predecessor name: `{predecessor_name: output_value}`.
+
 ### Conditional Branching
 
 Use the `|` operator to create mutually exclusive branches — the runtime selects which branch to execute based on the upstream output:

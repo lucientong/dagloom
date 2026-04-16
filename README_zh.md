@@ -71,6 +71,32 @@ result = pipeline.run(name="World")
 print(result)  # 🎉 HELLO, WORLD! 🎉
 ```
 
+### 扇出 / 扇入（并行）
+
+使用 `parallel()` 同时运行多个独立节点，然后合并结果：
+
+```python
+from dagloom import node, parallel
+
+@node(cache=True, retry=3)
+def fetch_users() -> list[dict]:
+    return [{"id": 1, "name": "Alice"}]
+
+@node(cache=True, retry=3)
+def fetch_orders() -> list[dict]:
+    return [{"id": 101, "user_id": 1}]
+
+@node
+def merge(inputs: dict[str, list]) -> dict:
+    # inputs = {"fetch_users": [...], "fetch_orders": [...]}
+    return {"users": inputs["fetch_users"], "orders": inputs["fetch_orders"]}
+
+pipeline = parallel(fetch_users, fetch_orders) >> merge
+result = pipeline.run()
+```
+
+> **注意**：当一个节点有多个前驱时，它收到的是一个以前驱节点名为 key 的字典：`{前驱名: 输出值}`。
+
 ### 条件分支
 
 使用 `|` 运算符创建互斥分支——运行时根据上游输出自动选择执行哪个分支：
