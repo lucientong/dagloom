@@ -123,6 +123,20 @@ CREATE INDEX IF NOT EXISTS idx_node_metrics_node
     ON node_metrics(node_id);
 CREATE INDEX IF NOT EXISTS idx_node_metrics_recorded
     ON node_metrics(recorded_at);
+
+CREATE TABLE IF NOT EXISTS pipeline_versions (
+    version_hash  TEXT PRIMARY KEY,
+    pipeline_id   TEXT NOT NULL,
+    code_snapshot  TEXT NOT NULL,
+    node_names    TEXT DEFAULT '[]',
+    edges         TEXT DEFAULT '[]',
+    description   TEXT DEFAULT '',
+    created_at    TEXT NOT NULL,
+    FOREIGN KEY (pipeline_id) REFERENCES pipelines(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_versions_pipeline
+    ON pipeline_versions(pipeline_id);
 """
 
 
@@ -629,6 +643,69 @@ class Database:
         )
         rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
+
+    # -- Pipeline Version CRUD --------------------------------------------------
+
+    async def save_pipeline_version(
+        self,
+        version_hash: str,
+        pipeline_id: str,
+        code_snapshot: str,
+        node_names: list[str] | None = None,
+        edges: list[tuple[str, str]] | None = None,
+        description: str = "",
+    ) -> None:
+        """Save a pipeline version snapshot (idempotent — skips if hash exists)."""
+        now = datetime.now(UTC).isoformat()
+        await self.conn.execute(
+            """
+            INSERT OR IGNORE INTO pipeline_versions
+                (version_hash, pipeline_id, code_snapshot, node_names,
+                 edges, description, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                version_hash,
+                pipeline_id,
+                code_snapshot,
+                json.dumps(node_names or []),
+                json.dumps(edges or []),
+                description,
+                now,
+            ),
+        )
+        await self.conn.commit()
+
+    async def get_pipeline_version(self, version_hash: str) -> dict[str, Any] | None:
+        """Fetch a pipeline version by its hash."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM pipeline_versions WHERE version_hash = ?",
+            (version_hash,),
+        )
+        row = await cursor.fetchone()
+        return self._row_to_dict(row) if row else None
+
+    async def list_pipeline_versions(
+        self,
+        pipeline_id: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List version history for a pipeline (newest first)."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM pipeline_versions WHERE pipeline_id = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (pipeline_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def delete_pipeline_version(self, version_hash: str) -> None:
+        """Delete a pipeline version."""
+        await self.conn.execute(
+            "DELETE FROM pipeline_versions WHERE version_hash = ?",
+            (version_hash,),
+        )
+        await self.conn.commit()
 
     # -- Node Metrics CRUD -----------------------------------------------------
 

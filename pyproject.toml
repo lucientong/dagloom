@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dagloom"
-version = "0.13.0"
+version = "0.14.0"
 description = "A lightweight pipeline/workflow engine. Weave data processing nodes into DAG workflows with decorators and the >> operator."
 readme = "README.md"
 license = {file = "LICENSE"}

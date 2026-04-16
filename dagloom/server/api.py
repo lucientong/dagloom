@@ -424,6 +424,22 @@ async def update_dag(pipeline_id: str, body: DagUpdateRequest) -> dict[str, Any]
         source_file=source_file,
     )
 
+    # --- Save version snapshot ---
+    if new_hash:
+        try:
+            await db.save_pipeline_version(
+                version_hash=new_hash,
+                pipeline_id=pipeline_id,
+                code_snapshot=code
+                if source_file
+                else json.dumps({"nodes": body.nodes, "edges": body.edges}),
+                node_names=node_names,
+                edges=edges,
+                description="Updated from UI",
+            )
+        except Exception:
+            logger.warning("Failed to save version snapshot for %s.", pipeline_id)
+
     await ws_manager.broadcast(
         pipeline_id,
         {"type": "dag_updated", "nodes": node_names, "edges": body.edges},
@@ -660,6 +676,90 @@ async def test_notification(body: NotificationTestRequest) -> dict[str, str]:
         ) from exc
 
     return {"status": "ok", "message": "Test notification sent successfully."}
+
+
+# -- Pipeline Version endpoints ------------------------------------------------
+
+
+@router.get("/pipelines/{pipeline_id}/versions")
+async def list_pipeline_versions(
+    pipeline_id: str,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List version history for a pipeline."""
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+
+    versions = await db.list_pipeline_versions(pipeline_id, limit=limit)
+    return {
+        "pipeline_id": pipeline_id,
+        "versions": versions,
+    }
+
+
+@router.get("/versions/{version_hash}")
+async def get_version(version_hash: str) -> dict[str, Any]:
+    """Get a specific pipeline version by its hash."""
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+
+    version = await db.get_pipeline_version(version_hash)
+    if version is None:
+        raise HTTPException(status_code=404, detail=f"Version {version_hash!r} not found.")
+    return version
+
+
+@router.get("/versions/{hash_a}/diff/{hash_b}")
+async def diff_versions(hash_a: str, hash_b: str) -> dict[str, Any]:
+    """Diff two pipeline versions.
+
+    Returns added/removed/unchanged nodes and edges, plus a unified
+    diff of the code snapshots.
+    """
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+
+    ver_a = await db.get_pipeline_version(hash_a)
+    if ver_a is None:
+        raise HTTPException(status_code=404, detail=f"Version {hash_a!r} not found.")
+
+    ver_b = await db.get_pipeline_version(hash_b)
+    if ver_b is None:
+        raise HTTPException(status_code=404, detail=f"Version {hash_b!r} not found.")
+
+    import difflib
+
+    nodes_a = set(json.loads(ver_a.get("node_names", "[]")))
+    nodes_b = set(json.loads(ver_b.get("node_names", "[]")))
+
+    edges_a = {tuple(e) for e in json.loads(ver_a.get("edges", "[]"))}
+    edges_b = {tuple(e) for e in json.loads(ver_b.get("edges", "[]"))}
+
+    code_a = ver_a.get("code_snapshot", "").splitlines(keepends=True)
+    code_b = ver_b.get("code_snapshot", "").splitlines(keepends=True)
+
+    unified_diff = list(
+        difflib.unified_diff(code_a, code_b, fromfile=hash_a[:12], tofile=hash_b[:12])
+    )
+
+    return {
+        "hash_a": hash_a,
+        "hash_b": hash_b,
+        "nodes": {
+            "added": sorted(nodes_b - nodes_a),
+            "removed": sorted(nodes_a - nodes_b),
+            "unchanged": sorted(nodes_a & nodes_b),
+        },
+        "edges": {
+            "added": sorted(edges_b - edges_a),
+            "removed": sorted(edges_a - edges_b),
+            "unchanged": sorted(edges_a & edges_b),
+        },
+        "code_diff": "".join(unified_diff),
+    }
 
 
 # -- Metrics / History endpoints -----------------------------------------------

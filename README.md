@@ -316,6 +316,24 @@ dagloom serve
 # Open http://localhost:8000 in your browser
 ```
 
+## 🔖 Pipeline Versioning
+
+Every DAG change is automatically versioned with a SHA-256 hash. Compare versions to see exactly what changed:
+
+```python
+# List version history
+versions = await db.list_pipeline_versions("my_pipeline")
+
+# Diff two versions
+# GET /api/versions/{hash_a}/diff/{hash_b}
+# Returns: added/removed nodes, edges, and unified code diff
+```
+
+**REST API**:
+- `GET /api/pipelines/{id}/versions` — list version history
+- `GET /api/versions/{hash}` — get a specific version snapshot
+- `GET /api/versions/{hash_a}/diff/{hash_b}` — structured diff between versions
+
 ## 📊 Observability
 
 Track node execution metrics (wall time, success/failure rate, retries) across pipeline runs:
