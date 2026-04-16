@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-04-16
+
+### Added
+
+- **Pipeline version management**: Track code snapshots with SHA-256 hashing, compare versions with structured diffs
+  - `pipeline_versions` table (version_hash PK, pipeline_id, code_snapshot, node_names, edges, description, created_at) with pipeline index
+  - `Database.save_pipeline_version()` — idempotent version save (INSERT OR IGNORE by hash)
+  - `Database.get_pipeline_version(hash)` — fetch a specific version
+  - `Database.list_pipeline_versions(pipeline_id)` — list versions newest-first with limit
+  - `Database.delete_pipeline_version(hash)` — remove a version
+- **Version REST API endpoints**:
+  - `GET /api/pipelines/{id}/versions?limit=N` — list version history for a pipeline
+  - `GET /api/versions/{hash}` — get a specific version snapshot (code, nodes, edges)
+  - `GET /api/versions/{hash_a}/diff/{hash_b}` — structured diff: added/removed/unchanged nodes and edges, plus unified code diff
+- **Auto-versioning**: `PUT /api/pipelines/{id}/dag` now automatically saves a version snapshot when the DAG is updated from the UI
+- 17 new tests covering DB CRUD, API endpoints, and diff logic
+
+### Changed
+
+- `dagloom/store/db.py`: added `pipeline_versions` table to schema DDL; 4 new CRUD methods
+- `dagloom/server/api.py`: 3 new version endpoints; `update_dag` now auto-saves version snapshot
+
 ## [0.13.0] - 2026-04-16
 
 ### Added
@@ -303,7 +325,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/lucientong/dagloom/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/lucientong/dagloom/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/lucientong/dagloom/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lucientong/dagloom/compare/v0.10.0...v0.11.0

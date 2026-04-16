@@ -424,6 +424,24 @@ result = asyncio.run(executor.execute(url="https://..."))
 | DELETE | `/api/notifications/{id}` | 删除通知渠道 |
 | POST | `/api/notifications/test` | 发送测试通知 |
 
+## 🔖 管道版本管理
+
+每次 DAG 变更都会自动以 SHA-256 哈希保存版本快照。对比版本查看具体变化：
+
+```python
+# 列出版本历史
+versions = await db.list_pipeline_versions("my_pipeline")
+
+# 对比两个版本
+# GET /api/versions/{hash_a}/diff/{hash_b}
+# 返回：新增/删除的节点、边、以及统一代码 diff
+```
+
+**REST API**：
+- `GET /api/pipelines/{id}/versions` — 列出版本历史
+- `GET /api/versions/{hash}` — 获取特定版本快照
+- `GET /api/versions/{hash_a}/diff/{hash_b}` — 版本间结构化对比
+
 ## 📊 可观测性
 
 跟踪节点执行指标（耗时、成功/失败率、重试次数）：

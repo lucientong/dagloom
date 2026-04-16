@@ -15,6 +15,7 @@ This document provides a comprehensive overview of Dagloom's architecture, desig
 - [Security](#security)
 - [Authentication](#authentication)
 - [Observability](#observability)
+- [Pipeline Versioning](#pipeline-versioning)
 - [Future Roadmap](#future-roadmap)
 
 ---
@@ -1271,6 +1272,70 @@ AsyncExecutor._execute_node()
   ├─ Execute node (with retries)
   ├─ Record end time
   └─ INSERT INTO node_metrics (pipeline_id, execution_id, node_id, wall_time_ms, outcome, retry_count, error_message, recorded_at)
+```
+
+---
+
+## Pipeline Versioning
+
+### Pipeline Version Tracking (v0.14.0)
+
+Dagloom automatically tracks pipeline DAG versions. Every time a DAG is updated via the UI (`PUT /api/pipelines/{id}/dag`), a version snapshot is saved — enabling full history, rollback inspection, and structured diffs between any two versions.
+
+### Database Table
+
+```sql
+CREATE TABLE pipeline_versions (
+    version_hash TEXT PRIMARY KEY,
+    pipeline_id TEXT NOT NULL,
+    code_snapshot TEXT NOT NULL,
+    node_names TEXT NOT NULL,       -- JSON array
+    edges TEXT NOT NULL,            -- JSON array of [src, tgt]
+    description TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (pipeline_id) REFERENCES pipelines(id)
+);
+```
+
+### Auto-Versioning
+
+When a DAG is saved via `PUT /api/pipelines/{id}/dag`, the server computes a **SHA-256 hash** of the code snapshot and persists a version row. The write is idempotent — identical DAG states produce the same hash and are silently skipped (`INSERT OR IGNORE`).
+
+### Database Methods (`dagloom/store/db.py`)
+
+```python
+# Idempotent version save (INSERT OR IGNORE)
+await db.save_pipeline_version(hash, pipeline_id, code_snapshot, node_names, edges)
+
+# List version history (newest first)
+versions = await db.list_pipeline_versions(pipeline_id, limit=50)
+```
+
+### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/pipelines/{id}/versions?limit=N` | List version history (newest first, default limit 50) |
+| GET | `/api/versions/{hash}` | Get specific version snapshot (code, nodes, edges) |
+| GET | `/api/versions/{hash_a}/diff/{hash_b}` | Structured diff between two versions |
+
+### Diff Endpoint
+
+`GET /api/versions/{hash_a}/diff/{hash_b}` returns a structured diff:
+
+- **Nodes**: `added`, `removed`, `unchanged` lists
+- **Edges**: `added`, `removed`, `unchanged` lists
+- **Code**: Unified diff (generated via Python `difflib`)
+
+### Versioning Flow
+
+```
+PUT /api/pipelines/{id}/dag
+  ├─ dag_to_code() → generate Python source
+  ├─ SHA-256(code_snapshot) → version_hash
+  ├─ db.save_pipeline_version(hash, id, code, nodes, edges)  # INSERT OR IGNORE
+  ├─ Write .py file + update DB
+  └─ Broadcast dag_updated via WebSocket
 ```
 
 ---
