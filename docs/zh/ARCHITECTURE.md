@@ -14,6 +14,7 @@
 - [Web 服务](#web-服务)
 - [安全](#安全)
 - [认证](#认证)
+- [可观测性](#可观测性)
 - [未来规划](#未来规划)
 
 ---
@@ -821,6 +822,8 @@ def create_app() -> FastAPI:
 | POST | `/api/notifications` | 创建通知渠道 |
 | DELETE | `/api/notifications/{id}` | 删除通知渠道 |
 | POST | `/api/notifications/test` | 发送测试通知 |
+| GET | `/api/metrics/{pipeline_id}` | 逐节点聚合统计 |
+| GET | `/api/history/{pipeline_id}?limit=N` | 执行历史，附带节点详情 |
 | GET | `/api/secrets` | 列出所有密钥名称 |
 | POST | `/api/secrets` | 创建或更新密钥 |
 | DELETE | `/api/secrets/{key}` | 删除密钥 |
@@ -1202,6 +1205,73 @@ dagloom serve
 
 ---
 
+## 可观测性
+
+### 节点级指标（v0.13.0）
+
+Dagloom 通过 SQLite 中的 `node_metrics` 表提供内置可观测性。启用后，执行器会自动为每次节点执行记录耗时和结果数据——无需手动埋点。
+
+### 数据库表
+
+```sql
+CREATE TABLE node_metrics (
+    pipeline_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    wall_time_ms REAL NOT NULL,
+    outcome TEXT NOT NULL,        -- "success" | "failed"
+    retry_count INTEGER DEFAULT 0,
+    error_message TEXT,
+    recorded_at TEXT NOT NULL
+);
+```
+
+### 启用指标
+
+向 `AsyncExecutor` 传递 `metrics_db` 参数（`Database` 实例）即可启用：
+
+```python
+from dagloom.scheduler import AsyncExecutor
+from dagloom.store import Database
+
+db = Database()
+await db.connect()
+
+executor = AsyncExecutor(pipeline, metrics_db=db)
+result = await executor.execute(url="https://...")
+```
+
+每个节点成功或失败后自动记录耗时，无需修改节点代码。
+
+### 查询指标（Python）
+
+```python
+# 逐节点聚合统计：总运行次数、成功/失败次数、avg/min/max/p50/p95 毫秒
+stats = await db.get_node_stats(pipeline_id="my_pipeline")
+
+# 执行历史，附带逐节点指标
+history = await db.get_execution_history(pipeline_id="my_pipeline", limit=20)
+```
+
+### REST API
+
+| 方法 | 端点 | 描述 |
+|------|------|------|
+| GET | `/api/metrics/{pipeline_id}` | 逐节点聚合统计（总运行次数、成功/失败次数、avg/min/max/p50/p95 毫秒） |
+| GET | `/api/history/{pipeline_id}?limit=N` | 执行历史，附带逐节点详情 |
+
+### 指标记录流程
+
+```
+AsyncExecutor._execute_node()
+  ├─ 记录开始时间
+  ├─ 执行节点（含重试）
+  ├─ 记录结束时间
+  └─ INSERT INTO node_metrics (pipeline_id, execution_id, node_id, wall_time_ms, outcome, retry_count, error_message, recorded_at)
+```
+
+---
+
 ## 未来规划
 
 ### 计划中的功能
@@ -1211,7 +1281,7 @@ dagloom serve
 3. ~~**密钥管理**：安全的凭据注入~~ ✅ 已在 v0.9.0 实现
 4. **插件系统**：自定义节点类型（Docker、Kubernetes Job）
 5. **数据血缘**：跟踪数据在管道中的流转
-6. **监控**：Prometheus 指标、Grafana 仪表板
+6. ~~**监控**：Prometheus 指标、Grafana 仪表板~~ ✅ 内置可观测性已在 v0.13.0 实现
 7. ~~**通知节点**：Email / Webhook（Slack、企微、飞书）管道事件告警~~ ✅ 已在 v0.5.0 实现
 8. ~~**缓存依赖失效**：节点输出变化时自动级联清除下游缓存~~ ✅ 已在 v0.7.0 实现
 9. ~~**逐节点执行器提示**：`@node(executor="process"|"async"|"auto")` 实现细粒度分派控制~~ ✅ 已在 v0.8.0 实现

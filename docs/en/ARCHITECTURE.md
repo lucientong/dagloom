@@ -14,6 +14,7 @@ This document provides a comprehensive overview of Dagloom's architecture, desig
 - [Web Server](#web-server)
 - [Security](#security)
 - [Authentication](#authentication)
+- [Observability](#observability)
 - [Future Roadmap](#future-roadmap)
 
 ---
@@ -802,6 +803,8 @@ def create_app() -> FastAPI:
 | POST | `/api/notifications` | Create a notification channel |
 | DELETE | `/api/notifications/{id}` | Delete a channel |
 | POST | `/api/notifications/test` | Send a test notification |
+| GET | `/api/metrics/{pipeline_id}` | Per-node aggregate stats |
+| GET | `/api/history/{pipeline_id}?limit=N` | Execution history with node detail |
 | GET | `/api/secrets` | List all secret keys |
 | POST | `/api/secrets` | Create or update a secret |
 | DELETE | `/api/secrets/{key}` | Delete a secret |
@@ -1205,6 +1208,73 @@ Incoming Request
 
 ---
 
+## Observability
+
+### Node-Level Metrics (v0.13.0)
+
+Dagloom provides built-in observability via a `node_metrics` table in SQLite. When enabled, the executor automatically records timing and outcome data for every node execution — no manual instrumentation required.
+
+### Database Table
+
+```sql
+CREATE TABLE node_metrics (
+    pipeline_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    wall_time_ms REAL NOT NULL,
+    outcome TEXT NOT NULL,        -- "success" | "failed"
+    retry_count INTEGER DEFAULT 0,
+    error_message TEXT,
+    recorded_at TEXT NOT NULL
+);
+```
+
+### Enabling Metrics
+
+Pass a `Database` instance to `AsyncExecutor` via the `metrics_db` parameter:
+
+```python
+from dagloom.scheduler import AsyncExecutor
+from dagloom.store import Database
+
+db = Database()
+await db.connect()
+
+executor = AsyncExecutor(pipeline, metrics_db=db)
+result = await executor.execute(url="https://...")
+```
+
+Timing is recorded automatically after each node succeeds or fails. No changes to node code are needed.
+
+### Querying Metrics (Python)
+
+```python
+# Aggregate stats per node: total_runs, success/failure count, avg/min/max/p50/p95 ms
+stats = await db.get_node_stats(pipeline_id="my_pipeline")
+
+# Execution history with per-node metrics attached
+history = await db.get_execution_history(pipeline_id="my_pipeline", limit=20)
+```
+
+### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/metrics/{pipeline_id}` | Per-node aggregate stats (total runs, success/failure count, avg/min/max/p50/p95 ms) |
+| GET | `/api/history/{pipeline_id}?limit=N` | Execution history with per-node detail |
+
+### Metrics Flow
+
+```
+AsyncExecutor._execute_node()
+  ├─ Record start time
+  ├─ Execute node (with retries)
+  ├─ Record end time
+  └─ INSERT INTO node_metrics (pipeline_id, execution_id, node_id, wall_time_ms, outcome, retry_count, error_message, recorded_at)
+```
+
+---
+
 ## Future Roadmap
 
 ### Planned Features
@@ -1214,12 +1284,11 @@ Incoming Request
 3. ~~**Secrets Management**: Secure credential injection~~ ✅ Implemented in v0.9.0
 4. **Plugins**: Custom node types (Docker, Kubernetes jobs)
 5. **Lineage Tracking**: Track data provenance through pipelines
-6. **Monitoring**: Prometheus metrics, Grafana dashboards
+6. ~~**Monitoring**: Prometheus metrics, Grafana dashboards~~ ✅ Built-in observability implemented in v0.13.0
 7. ~~**Notification Nodes**: Email / Webhook (Slack, WeChat Work, Feishu) alerts on pipeline events~~ ✅ Implemented in v0.5.0
 8. ~~**Cache Dependency Invalidation**: Automatic downstream cache invalidation on output changes~~ ✅ Implemented in v0.7.0
 9. ~~**Per-Node Executor Hints**: `@node(executor="process"|"async"|"auto")` for fine-grained dispatch control~~ ✅ Implemented in v0.8.0
 10. ~~**PyPI Package & One-Click Demo**: `dagloom demo --run` for an instant ETL demo pipeline~~ ✅ Implemented in v0.10.0
-11. ~~**Authentication**: Middleware-based API key / Basic auth for the web server~~ ✅ Implemented in v0.11.0
 11. ~~**Authentication**: Middleware-based API key / Basic auth for the web server~~ ✅ Implemented in v0.11.0
 
 ### Non-Goals

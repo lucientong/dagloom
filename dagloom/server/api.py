@@ -662,6 +662,49 @@ async def test_notification(body: NotificationTestRequest) -> dict[str, str]:
     return {"status": "ok", "message": "Test notification sent successfully."}
 
 
+# -- Metrics / History endpoints -----------------------------------------------
+
+
+@router.get("/metrics/{pipeline_id}")
+async def get_metrics(pipeline_id: str) -> dict[str, Any]:
+    """Get per-node aggregate metrics for a pipeline.
+
+    Returns node-level stats: total runs, success/failure counts,
+    avg/min/max/p50/p95 wall-time in milliseconds.
+    """
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+
+    stats = await db.get_node_stats(pipeline_id)
+    return {
+        "pipeline_id": pipeline_id,
+        "nodes": stats,
+    }
+
+
+@router.get("/history/{pipeline_id}")
+async def get_history(
+    pipeline_id: str,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Get execution history for a pipeline with per-node metrics.
+
+    Args:
+        pipeline_id: Pipeline to query.
+        limit: Max executions to return (default 20).
+    """
+    db = get_state("db")
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized.")
+
+    executions = await db.get_execution_history(pipeline_id, limit=limit)
+    return {
+        "pipeline_id": pipeline_id,
+        "executions": executions,
+    }
+
+
 # -- Secrets endpoints --------------------------------------------------------
 
 

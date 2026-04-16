@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-04-16
+
+### Added
+
+- **Observability — Node execution metrics**: Per-node timing, outcome, and retry tracking persisted to SQLite
+  - `node_metrics` table with indexed columns for pipeline, node, and timestamp queries
+  - `Database.save_node_metric()` — record wall time, outcome, retry count per node execution
+  - `Database.get_node_metrics(node_id)` — fetch recent metrics for a specific node
+  - `Database.get_pipeline_metrics(pipeline_id)` — fetch all node metrics for a pipeline
+  - `Database.get_node_stats(pipeline_id)` — aggregate stats per node: total runs, success/failure counts, avg/min/max/p50/p95 wall time
+  - `Database.get_execution_history(pipeline_id)` — execution history with per-node metrics attached
+- **Metrics REST API endpoints**:
+  - `GET /api/metrics/{pipeline_id}` — per-node aggregate statistics (runs, failure rate, latency percentiles)
+  - `GET /api/history/{pipeline_id}?limit=N` — execution history with node-level detail
+- **Executor instrumentation**: `AsyncExecutor` accepts optional `metrics_db` parameter; automatically records wall time and outcome for each node on success or failure
+- 19 new tests covering DB metrics CRUD, executor instrumentation, and API endpoints
+
+### Changed
+
+- `dagloom/store/db.py`: added `node_metrics` table with 3 indexes to schema DDL; 5 new query methods
+- `dagloom/scheduler/executor.py`: `AsyncExecutor.__init__` accepts `metrics_db`; `_execute_node` records metrics after success/failure; new `_record_metric()` helper
+
 ## [0.12.0] - 2026-04-16
 
 ### Added
@@ -281,7 +303,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/lucientong/dagloom/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/lucientong/dagloom/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lucientong/dagloom/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/lucientong/dagloom/compare/v0.9.0...v0.10.0

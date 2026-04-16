@@ -104,6 +104,25 @@ CREATE TABLE IF NOT EXISTS secrets (
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS node_metrics (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    pipeline_id   TEXT NOT NULL,
+    execution_id  TEXT NOT NULL,
+    node_id       TEXT NOT NULL,
+    wall_time_ms  REAL NOT NULL,
+    outcome       TEXT NOT NULL,
+    retry_count   INTEGER DEFAULT 0,
+    error_message TEXT,
+    recorded_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_node_metrics_pipeline
+    ON node_metrics(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_node_metrics_node
+    ON node_metrics(node_id);
+CREATE INDEX IF NOT EXISTS idx_node_metrics_recorded
+    ON node_metrics(recorded_at);
 """
 
 
@@ -610,6 +629,160 @@ class Database:
         )
         rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
+
+    # -- Node Metrics CRUD -----------------------------------------------------
+
+    async def save_node_metric(
+        self,
+        pipeline_id: str,
+        execution_id: str,
+        node_id: str,
+        wall_time_ms: float,
+        outcome: str,
+        retry_count: int = 0,
+        error_message: str | None = None,
+    ) -> None:
+        """Record a node execution metric."""
+        now = datetime.now(UTC).isoformat()
+        await self.conn.execute(
+            """
+            INSERT INTO node_metrics
+                (pipeline_id, execution_id, node_id, wall_time_ms,
+                 outcome, retry_count, error_message, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                pipeline_id,
+                execution_id,
+                node_id,
+                wall_time_ms,
+                outcome,
+                retry_count,
+                error_message,
+                now,
+            ),
+        )
+        await self.conn.commit()
+
+    async def get_node_metrics(
+        self,
+        node_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Fetch recent metrics for a specific node.
+
+        Args:
+            node_id: The node to query.
+            limit: Maximum rows to return.
+
+        Returns:
+            List of metric dicts ordered by most recent first.
+        """
+        cursor = await self.conn.execute(
+            "SELECT * FROM node_metrics WHERE node_id = ? ORDER BY recorded_at DESC LIMIT ?",
+            (node_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def get_pipeline_metrics(
+        self,
+        pipeline_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Fetch recent metrics for all nodes in a pipeline.
+
+        Args:
+            pipeline_id: The pipeline to query.
+            limit: Maximum rows to return.
+
+        Returns:
+            List of metric dicts ordered by most recent first.
+        """
+        cursor = await self.conn.execute(
+            "SELECT * FROM node_metrics WHERE pipeline_id = ? ORDER BY recorded_at DESC LIMIT ?",
+            (pipeline_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def get_execution_history(
+        self,
+        pipeline_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Fetch execution history with summary stats.
+
+        Args:
+            pipeline_id: The pipeline to query.
+            limit: Maximum executions to return.
+
+        Returns:
+            List of execution dicts with node metrics attached.
+        """
+        cursor = await self.conn.execute(
+            "SELECT * FROM executions WHERE pipeline_id = ? ORDER BY started_at DESC LIMIT ?",
+            (pipeline_id, limit),
+        )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            execution = self._row_to_dict(row)
+            # Attach per-node metrics for this execution.
+            metrics_cursor = await self.conn.execute(
+                "SELECT node_id, wall_time_ms, outcome, retry_count, error_message "
+                "FROM node_metrics WHERE execution_id = ? ORDER BY recorded_at",
+                (execution["id"],),
+            )
+            metrics_rows = await metrics_cursor.fetchall()
+            execution["node_metrics"] = [self._row_to_dict(m) for m in metrics_rows]
+            results.append(execution)
+        return results
+
+    async def get_node_stats(
+        self,
+        pipeline_id: str,
+    ) -> list[dict[str, Any]]:
+        """Compute aggregate stats per node for a pipeline.
+
+        Returns:
+            List of dicts with node_id, total_runs, success_count,
+            failure_count, avg_ms, p50_ms, p95_ms.
+        """
+        cursor = await self.conn.execute(
+            """
+            SELECT
+                node_id,
+                COUNT(*)                             AS total_runs,
+                SUM(CASE WHEN outcome='success' THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN outcome='failed'  THEN 1 ELSE 0 END) AS failure_count,
+                AVG(wall_time_ms)                    AS avg_ms,
+                MIN(wall_time_ms)                    AS min_ms,
+                MAX(wall_time_ms)                    AS max_ms
+            FROM node_metrics
+            WHERE pipeline_id = ?
+            GROUP BY node_id
+            ORDER BY node_id
+            """,
+            (pipeline_id,),
+        )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            # Compute percentiles from raw data.
+            pcursor = await self.conn.execute(
+                "SELECT wall_time_ms FROM node_metrics "
+                "WHERE pipeline_id = ? AND node_id = ? "
+                "ORDER BY wall_time_ms",
+                (pipeline_id, d["node_id"]),
+            )
+            times = [r["wall_time_ms"] for r in await pcursor.fetchall()]
+            n = len(times)
+            d["p50_ms"] = times[n // 2] if n > 0 else 0.0
+            d["p95_ms"] = times[int(n * 0.95)] if n > 0 else 0.0
+            results.append(d)
+        return results
 
     # -- Helpers --------------------------------------------------------------
 

@@ -225,6 +225,43 @@ await store.set("API_KEY", "sk-abc123")
 value = await store.get("API_KEY")
 ```
 
+### 7. 可观测性与指标（v0.13.0）
+
+Dagloom 可自动记录逐节点的耗时和结果数据。向 `AsyncExecutor` 传递 `Database` 实例即可启用指标：
+
+```python
+from dagloom.scheduler import AsyncExecutor
+from dagloom.store import Database
+
+db = Database()
+await db.connect()
+
+executor = AsyncExecutor(pipeline, metrics_db=db)
+result = await executor.execute(url="https://...")
+```
+
+每次节点执行都会记录到 `node_metrics` 表中，包括耗时、结果、重试次数和错误信息。无需修改节点代码。
+
+#### 查询指标
+
+```python
+# 逐节点聚合统计：总运行次数、成功/失败次数、avg/min/max/p50/p95 毫秒
+stats = await db.get_node_stats("my_pipeline")
+
+# 最近的执行历史，附带逐节点指标
+history = await db.get_execution_history("my_pipeline", limit=20)
+```
+
+#### REST API
+
+```bash
+# 逐节点聚合统计
+curl http://localhost:8000/api/metrics/my_pipeline
+
+# 执行历史，附带节点详情
+curl http://localhost:8000/api/history/my_pipeline?limit=10
+```
+
 ## 核心概念
 
 ### 节点（Node）
@@ -408,6 +445,8 @@ result = asyncio.run(executor.execute(url="https://..."))
 | GET | `/api/secrets` | 列出所有密钥 |
 | POST | `/api/secrets` | 创建或更新密钥 |
 | DELETE | `/api/secrets/{name}` | 删除密钥 |
+| GET | `/api/metrics/{pipeline_id}` | 逐节点聚合统计 |
+| GET | `/api/history/{pipeline_id}?limit=N` | 执行历史，附带节点详情 |
 
 ### CLI 命令
 
