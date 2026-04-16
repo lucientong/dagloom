@@ -20,12 +20,12 @@ Example::
     result = pipeline.run(name="World")
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from dagloom.core.context import ExecutionContext, NodeStatus
 from dagloom.core.dag import CycleError
 from dagloom.core.node import Branch, Node, node
-from dagloom.core.pipeline import Pipeline
+from dagloom.core.pipeline import Pipeline, parallel
 from dagloom.scheduler.cache import CacheManager
 from dagloom.scheduler.checkpoint import CheckpointManager
 from dagloom.scheduler.executor import AsyncExecutor, ExecutionError
@@ -45,4 +45,5 @@ __all__ = [
     "SchedulerService",
     "__version__",
     "node",
+    "parallel",
 ]

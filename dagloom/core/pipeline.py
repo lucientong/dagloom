@@ -261,7 +261,7 @@ class Pipeline:
         roots = find_root_nodes(digraph)
         leaves = find_leaf_nodes(digraph)
 
-        ctx = ExecutionContext(pipeline_name=self.name or "unnamed")
+        ctx = ExecutionContext(pipeline_name=self.name or "unnamed", pipeline_inputs=dict(inputs))
         skipped_nodes: set[str] = set()
 
         for node_name in order:
@@ -276,7 +276,8 @@ class Pipeline:
             try:
                 # Determine input for this node.
                 if node_name in roots:
-                    result = self._call_node(node, **inputs)
+                    filtered = _filter_inputs(node, inputs)
+                    result = self._call_node(node, **filtered)
                 else:
                     preds = [p for p in self.predecessors(node_name) if p not in skipped_nodes]
                     if len(preds) == 1:
@@ -398,13 +399,26 @@ class Pipeline:
         return new
 
     def visualize(self) -> str:
-        """Return a simple text visualization of the DAG.
+        """Return a text visualization of the DAG with node metadata.
 
         Returns:
-            A multi-line string showing nodes and edges.
+            A multi-line string showing nodes (with retry/cache/timeout
+            settings) and edges.
         """
         lines = [f"Pipeline: {self.name or '(unnamed)'}"]
-        lines.append(f"Nodes ({len(self._nodes)}): {', '.join(self._nodes.keys())}")
+        lines.append(f"Nodes ({len(self._nodes)}):")
+        for name, n in self._nodes.items():
+            meta_parts: list[str] = []
+            if n.retry > 0:
+                meta_parts.append(f"retry={n.retry}")
+            if n.cache:
+                meta_parts.append("cache=True")
+            if n.timeout is not None:
+                meta_parts.append(f"timeout={n.timeout}s")
+            if n.executor != "auto":
+                meta_parts.append(f"executor={n.executor!r}")
+            meta = f"  [{', '.join(meta_parts)}]" if meta_parts else ""
+            lines.append(f"  {name}{meta}")
         lines.append("Edges:")
         for source, target in self._edges:
             lines.append(f"  {source} -> {target}")
@@ -415,6 +429,75 @@ class Pipeline:
 
     def __len__(self) -> int:
         return len(self._nodes)
+
+
+def _filter_inputs(node: Node, inputs: dict[str, Any]) -> dict[str, Any]:
+    """Filter pipeline inputs to only include params accepted by the node.
+
+    If the node accepts ``**kwargs``, all inputs are passed through.
+    Otherwise only matching parameter names are forwarded.
+
+    Args:
+        node: The target node.
+        inputs: The full pipeline ``**inputs`` dict.
+
+    Returns:
+        A filtered dict of kwargs for the node.
+    """
+    try:
+        sig = inspect.signature(node.fn)
+    except (ValueError, TypeError):
+        return inputs
+
+    # If any parameter accepts **kwargs (VAR_KEYWORD), pass everything.
+    for param in sig.parameters.values():
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return inputs
+
+    accepted = set(sig.parameters.keys())
+    return {k: v for k, v in inputs.items() if k in accepted}
+
+
+def parallel(*nodes_or_pipelines: Node | Pipeline) -> Pipeline:
+    """Create a pipeline with multiple independent root nodes (fan-out).
+
+    The returned pipeline has all given nodes/pipelines as roots with no
+    edges between them.  Connect downstream with ``>>`` to create fan-in::
+
+        pipeline = parallel(fetch_a, fetch_b, fetch_c) >> merge_results
+
+    The ``merge_results`` node will receive a dict keyed by predecessor
+    name: ``{"fetch_a": ..., "fetch_b": ..., "fetch_c": ...}``.
+
+    Args:
+        *nodes_or_pipelines: Nodes or Pipelines to run in parallel.
+
+    Returns:
+        A new Pipeline containing all given nodes as independent roots.
+
+    Raises:
+        ValueError: If fewer than 2 arguments are provided.
+    """
+    if len(nodes_or_pipelines) < 2:
+        raise ValueError("parallel() requires at least 2 nodes or pipelines.")
+
+    pipe = Pipeline()
+    for item in nodes_or_pipelines:
+        if isinstance(item, Node):
+            pipe.add_node(item)
+            if item.name not in pipe._tail_nodes:
+                pipe._tail_nodes.append(item.name)
+        elif isinstance(item, Pipeline):
+            for n in item._nodes.values():
+                pipe.add_node(n)
+            for e in item._edges:
+                pipe.add_edge(e[0], e[1])
+            for leaf in item.leaf_nodes():
+                if leaf not in pipe._tail_nodes:
+                    pipe._tail_nodes.append(leaf)
+        else:
+            raise TypeError(f"parallel() accepts Node or Pipeline, got {type(item).__name__}")
+    return pipe
 
 
 # ---------------------------------------------------------------------------

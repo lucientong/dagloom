@@ -82,6 +82,7 @@ class ExecutionContext:
     Attributes:
         execution_id: Unique identifier for this pipeline run.
         pipeline_name: Name of the pipeline being executed.
+        pipeline_inputs: Original keyword arguments passed to ``pipeline.run()``.
         outputs: Mapping of node name to its output value.
         node_info: Mapping of node name to its execution metadata.
         metadata: Arbitrary user-defined metadata.
@@ -89,6 +90,7 @@ class ExecutionContext:
 
     execution_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     pipeline_name: str = ""
+    pipeline_inputs: dict[str, Any] = field(default_factory=dict)
     outputs: dict[str, Any] = field(default_factory=dict)
     node_info: dict[str, NodeExecutionInfo] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -131,6 +133,18 @@ class ExecutionContext:
             True if the node has stored output.
         """
         return node_name in self.outputs
+
+    def get_input(self, key: str, default: Any = None) -> Any:
+        """Retrieve an original pipeline input by key.
+
+        Args:
+            key: The input parameter name.
+            default: Value to return if the key is not found.
+
+        Returns:
+            The input value, or *default*.
+        """
+        return self.pipeline_inputs.get(key, default)
 
     def get_node_info(self, node_name: str) -> NodeExecutionInfo:
         """Get or create execution info for a node.
