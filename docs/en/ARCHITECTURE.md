@@ -1,6 +1,6 @@
 # Dagloom Architecture
 
-> **v1.0.0 Stable Release** — Dagloom is now production-stable. All APIs documented here are covered by semantic versioning guarantees.
+> **v1.0.1 Patch Release** — Feedback fixes for parallel workflows, input handling, and context access. All APIs documented here are covered by semantic versioning guarantees.
 
 This document provides a comprehensive overview of Dagloom's architecture, design decisions, and implementation details.
 
@@ -257,7 +257,11 @@ class Pipeline:
 # Method 1: Using >> operator
 pipeline = fetch >> clean >> save
 
-# Method 2: Explicit construction
+# Method 2: Fan-out / fan-in with parallel()
+from dagloom import parallel
+pipeline = parallel(fetch_a, fetch_b) >> merge
+
+# Method 3: Explicit construction
 pipeline = Pipeline()
 pipeline.add_node(fetch)
 pipeline.add_node(clean)
@@ -265,6 +269,10 @@ pipeline.add_node(save)
 pipeline.add_edge("fetch", "clean")
 pipeline.add_edge("clean", "save")
 ```
+
+**`parallel()` helper (v1.0.1):**
+
+`parallel(*nodes)` creates a pipeline where all given nodes are roots with no edges between them. When piped into a downstream node via `>>`, that node receives a `{predecessor_name: output}` dict. Root nodes are automatically filtered to receive only matching kwargs from `pipeline.run()`.
 
 **Execution:**
 
@@ -332,6 +340,19 @@ def merge(inputs: dict[str, Any]) -> pd.DataFrame:
     # inputs = {"process_a": df_a, "process_b": df_b}
     return pd.concat([inputs["process_a"], inputs["process_b"]])
 ```
+
+### Root Node Input Filtering (v1.0.1)
+
+When `pipeline.run(**kwargs)` is called, each root node receives only the kwargs that match its function signature (via `inspect.signature`). Extra kwargs are silently ignored — this prevents `TypeError` when different roots accept different parameters.
+
+### Pipeline Input Context (v1.0.1)
+
+The execution context exposes the full original inputs to all nodes:
+
+- `ctx.pipeline_inputs` — the complete kwargs dict passed to `pipeline.run()`
+- `ctx.get_input(key, default=None)` — convenience accessor for a single key
+
+This allows downstream nodes to access inputs that were filtered out at the root level.
 
 ---
 

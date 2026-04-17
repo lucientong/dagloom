@@ -1,6 +1,6 @@
 # Dagloom 快速入门
 
-> **v1.0.0 正式稳定版** — Dagloom 现已达到生产稳定状态。所有 API 均受语义化版本控制保证。
+> **v1.0.1 补丁版本** — 修复并行工作流、输入处理和上下文访问相关的用户反馈问题。所有 API 均受语义化版本控制保证。
 
 ## 安装
 
@@ -308,6 +308,79 @@ Dagloom Web UI 现已包含三个专用视图：
 - **VersionHistory** — 并排版本对比，支持结构化差异展示（新增/删除的节点和边、统一格式的代码差异）
 
 运行 `dagloom serve` 并在浏览器中打开 `http://localhost:8000` 即可访问 Web UI。
+
+## 并行执行与输入处理（v1.0.1）
+
+### 使用 `parallel()` 实现扇出/扇入
+
+使用 `parallel()` 辅助函数并发运行节点并合并结果：
+
+```python
+from dagloom import node, parallel
+
+@node
+def fetch_a(token: str) -> dict:
+    """从服务 A 获取数据。"""
+    return {"a": 1}
+
+@node
+def fetch_b(token: str) -> dict:
+    """从服务 B 获取数据。"""
+    return {"b": 2}
+
+@node
+def merge(inputs: dict[str, dict]) -> dict:
+    # inputs = {"fetch_a": {"a": 1}, "fetch_b": {"b": 2}}
+    return {**inputs["fetch_a"], **inputs["fetch_b"]}
+
+pipeline = parallel(fetch_a, fetch_b) >> merge
+result = pipeline.run(token="xxx", extra="ignored")  # extra 被过滤
+```
+
+### 多前驱节点的输入格式
+
+当节点有**多个前驱**时，它接收一个以前驱名称为键的 `dict`：
+
+```python
+@node
+def merge(inputs: dict[str, dict]) -> dict:
+    # inputs = {"fetch_a": ..., "fetch_b": ...}
+    return {**inputs["fetch_a"], **inputs["fetch_b"]}
+```
+
+这适用于任何有多条入边的节点——不仅限于 `parallel()`。
+
+### 根节点输入过滤
+
+调用 `pipeline.run()` 时，每个**根节点**（无前驱）只会接收与其函数签名匹配的 kwargs，多余的 kwargs 会被静默忽略：
+
+```python
+@node
+def fetch_a(token: str) -> dict: ...
+
+@node
+def fetch_b(token: str) -> dict: ...
+
+pipeline = parallel(fetch_a, fetch_b) >> merge
+# 两个根节点都接受 `token`；`extra` 被过滤掉
+result = pipeline.run(token="xxx", extra="ignored")
+```
+
+### 访问原始管道输入
+
+在任意节点内部，可通过执行上下文访问完整的原始输入——即使是不直接接收这些参数的下游节点：
+
+```python
+@node
+def downstream(data: dict, ctx=None) -> dict:
+    # 访问所有原始 pipeline.run() 输入
+    all_inputs = ctx.pipeline_inputs        # {"token": "xxx", "extra": "ignored"}
+    token = ctx.get_input("token")          # "xxx"
+    missing = ctx.get_input("nope", "default")  # "default"
+    return data
+```
+
+`ctx.pipeline_inputs` 返回完整的 kwargs 字典。`ctx.get_input(key, default=None)` 是便捷访问器。
 
 ## 核心概念
 

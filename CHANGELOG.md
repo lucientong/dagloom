@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-04-17
+
+### Added
+
+- **`Encryptor(key_file=...)` persistent key storage** (FB-006): When `DAGLOOM_MASTER_KEY` env var is unset, `Encryptor` can now auto-generate a Fernet key and persist it to a file with `0o600` permissions. On subsequent invocations the same key is reused, making `SecretStore` usable out-of-the-box for CLI tools without manual key management.
+  - Priority order: explicit `master_key` → `DAGLOOM_MASTER_KEY` env var → `key_file` → ephemeral (warning)
+  - Parent directories are created automatically
+  - 5 new tests covering key file creation, reuse, permissions, parent dir creation, and env var precedence
+
+### Changed
+
+- `dagloom/security/encryption.py`: `Encryptor.__init__` accepts optional `key_file` parameter; new `_load_or_create_key()` static method
+
 ## [1.0.1] - 2026-04-16
 
 ### Added
@@ -392,7 +405,8 @@ Dagloom v1.0.0 marks the first stable release — a full-featured, production-re
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/lucientong/dagloom/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/lucientong/dagloom/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lucientong/dagloom/compare/v0.14.0...v1.0.0
 [0.14.0]: https://github.com/lucientong/dagloom/compare/v0.13.0...v0.14.0

@@ -126,6 +126,56 @@ class TestEncryptor:
         """Empty string can be encrypted and decrypted."""
         assert encryptor.decrypt(encryptor.encrypt("")) == ""
 
+    def test_key_file_creates_and_persists(self, tmp_path: Path) -> None:
+        """key_file creates a new key file when it doesn't exist."""
+        key_path = tmp_path / "master.key"
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("DAGLOOM_MASTER_KEY", None)
+            enc = Encryptor(key_file=key_path)
+            assert key_path.exists()
+            # File should contain the key.
+            assert key_path.read_text().strip() == enc.key
+
+    def test_key_file_reuses_existing(self, tmp_path: Path) -> None:
+        """key_file reuses an existing key file across invocations."""
+        key_path = tmp_path / "master.key"
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("DAGLOOM_MASTER_KEY", None)
+            enc1 = Encryptor(key_file=key_path)
+            encrypted = enc1.encrypt("my-secret")
+
+            enc2 = Encryptor(key_file=key_path)
+            assert enc2.key == enc1.key
+            assert enc2.decrypt(encrypted) == "my-secret"
+
+    def test_key_file_permissions(self, tmp_path: Path) -> None:
+        """key_file is created with 0o600 permissions."""
+        key_path = tmp_path / "master.key"
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("DAGLOOM_MASTER_KEY", None)
+            Encryptor(key_file=key_path)
+            mode = key_path.stat().st_mode & 0o777
+            assert mode == 0o600
+
+    def test_key_file_creates_parent_dirs(self, tmp_path: Path) -> None:
+        """key_file creates parent directories if needed."""
+        key_path = tmp_path / "subdir" / "deep" / "master.key"
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("DAGLOOM_MASTER_KEY", None)
+            enc = Encryptor(key_file=key_path)
+            assert key_path.exists()
+            assert enc.decrypt(enc.encrypt("test")) == "test"
+
+    def test_env_var_takes_precedence_over_key_file(self, tmp_path: Path) -> None:
+        """DAGLOOM_MASTER_KEY env var takes precedence over key_file."""
+        key_path = tmp_path / "master.key"
+        env_key = Encryptor.generate_key()
+        with patch.dict(os.environ, {"DAGLOOM_MASTER_KEY": env_key}):
+            enc = Encryptor(key_file=key_path)
+            assert enc.key == env_key
+            # key_file should NOT have been created.
+            assert not key_path.exists()
+
     def test_encrypt_unicode(self, encryptor: Encryptor) -> None:
         """Unicode strings are handled correctly."""
         value = "密码🔑Пароль"
