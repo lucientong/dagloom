@@ -798,4 +798,4 @@ class TestPublicApiBranch:
     def test_version_is_030(self) -> None:
         import dagloom
 
-        assert dagloom.__version__ == "1.0.1"
+        assert dagloom.__version__ == "1.0.2"

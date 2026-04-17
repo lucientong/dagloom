@@ -1,6 +1,6 @@
 # Getting Started with Dagloom
 
-> **v1.0.0 Stable Release** — Dagloom is now production-stable. The API is fully covered by semantic versioning guarantees.
+> **v1.0.1 Patch Release** — Feedback fixes for parallel workflows, input handling, and context access. The API is fully covered by semantic versioning guarantees.
 
 ## Installation
 
@@ -308,6 +308,79 @@ The Dagloom Web UI now includes three dedicated views:
 - **VersionHistory** — Side-by-side version comparison with structured diffs (added/removed nodes and edges, unified code diff)
 
 Access the Web UI by running `dagloom serve` and opening `http://localhost:8000` in your browser.
+
+## Parallel Execution & Input Handling (v1.0.1)
+
+### Fan-Out / Fan-In with `parallel()`
+
+Use the `parallel()` helper to run nodes concurrently and merge their results:
+
+```python
+from dagloom import node, parallel
+
+@node
+def fetch_a(token: str) -> dict:
+    """Fetch data from service A."""
+    return {"a": 1}
+
+@node
+def fetch_b(token: str) -> dict:
+    """Fetch data from service B."""
+    return {"b": 2}
+
+@node
+def merge(inputs: dict[str, dict]) -> dict:
+    # inputs = {"fetch_a": {"a": 1}, "fetch_b": {"b": 2}}
+    return {**inputs["fetch_a"], **inputs["fetch_b"]}
+
+pipeline = parallel(fetch_a, fetch_b) >> merge
+result = pipeline.run(token="xxx", extra="ignored")  # extra filtered out
+```
+
+### Multi-Predecessor Input Shape
+
+When a node has **multiple predecessors**, it receives a `dict` keyed by predecessor name:
+
+```python
+@node
+def merge(inputs: dict[str, dict]) -> dict:
+    # inputs = {"fetch_a": ..., "fetch_b": ...}
+    return {**inputs["fetch_a"], **inputs["fetch_b"]}
+```
+
+This applies to any node with more than one incoming edge — not just `parallel()`.
+
+### Root Node Input Filtering
+
+When `pipeline.run()` is called, each **root node** (no predecessors) receives only the kwargs that match its function signature. Extra kwargs are silently ignored:
+
+```python
+@node
+def fetch_a(token: str) -> dict: ...
+
+@node
+def fetch_b(token: str) -> dict: ...
+
+pipeline = parallel(fetch_a, fetch_b) >> merge
+# Both root nodes accept `token`; `extra` is filtered out
+result = pipeline.run(token="xxx", extra="ignored")
+```
+
+### Accessing Original Pipeline Inputs
+
+Inside any node, use the execution context to access the full original inputs — even from downstream nodes that don't receive them directly:
+
+```python
+@node
+def downstream(data: dict, ctx=None) -> dict:
+    # Access all original pipeline.run() inputs
+    all_inputs = ctx.pipeline_inputs        # {"token": "xxx", "extra": "ignored"}
+    token = ctx.get_input("token")          # "xxx"
+    missing = ctx.get_input("nope", "default")  # "default"
+    return data
+```
+
+`ctx.pipeline_inputs` returns the full kwargs dict. `ctx.get_input(key, default=None)` is a convenience accessor.
 
 ## Core Concepts
 

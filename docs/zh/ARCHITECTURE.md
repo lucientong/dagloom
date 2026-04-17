@@ -1,6 +1,6 @@
 # Dagloom 架构文档
 
-> **v1.0.0 正式稳定版** — Dagloom 现已达到生产稳定状态。本文档中所有 API 均受语义化版本控制保证。
+> **v1.0.1 补丁版本** — 修复并行工作流、输入处理和上下文访问相关的用户反馈问题。本文档中所有 API 均受语义化版本控制保证。
 
 本文档全面介绍 Dagloom 的架构设计、技术决策和实现细节。
 
@@ -280,7 +280,11 @@ class Pipeline:
 # 方式 1：使用 >> 运算符
 pipeline = fetch >> clean >> save
 
-# 方式 2：显式构建
+# 方式 2：使用 parallel() 实现扇出/扇入
+from dagloom import parallel
+pipeline = parallel(fetch_a, fetch_b) >> merge
+
+# 方式 3：显式构建
 pipeline = Pipeline()
 pipeline.add_node(fetch)
 pipeline.add_node(clean)
@@ -288,6 +292,10 @@ pipeline.add_node(save)
 pipeline.add_edge("fetch", "clean")
 pipeline.add_edge("clean", "save")
 ```
+
+**`parallel()` 辅助函数（v1.0.1）：**
+
+`parallel(*nodes)` 创建一个管道，其中所有给定节点都是根节点，彼此之间没有边。通过 `>>` 连接到下游节点时，下游节点接收 `{前驱名称: 输出}` 字典。根节点会自动过滤，仅接收 `pipeline.run()` 中与其签名匹配的 kwargs。
 
 **执行：**
 
@@ -355,6 +363,19 @@ def merge(inputs: dict[str, Any]) -> pd.DataFrame:
     # inputs = {"process_a": df_a, "process_b": df_b}
     return pd.concat([inputs["process_a"], inputs["process_b"]])
 ```
+
+### 根节点输入过滤（v1.0.1）
+
+调用 `pipeline.run(**kwargs)` 时，每个根节点仅接收与其函数签名匹配的 kwargs（通过 `inspect.signature` 实现）。多余的 kwargs 会被静默忽略——这可以防止不同根节点接受不同参数时出现 `TypeError`。
+
+### 管道输入上下文（v1.0.1）
+
+执行上下文向所有节点暴露完整的原始输入：
+
+- `ctx.pipeline_inputs` — 传递给 `pipeline.run()` 的完整 kwargs 字典
+- `ctx.get_input(key, default=None)` — 单个键的便捷访问器
+
+这允许下游节点访问在根节点级别被过滤掉的输入。
 
 ---
 
