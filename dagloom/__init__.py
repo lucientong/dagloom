@@ -20,7 +20,7 @@ Example::
     result = pipeline.run(name="World")
 """
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 from dagloom.core.context import ExecutionContext, NodeStatus
 from dagloom.core.dag import CycleError

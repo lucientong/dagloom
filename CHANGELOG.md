@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-04-21
+
+### Added
+
+- **`HTTPConnector.paginate()` async iterator** (FB-007): Built-in pagination support with 3 strategies:
+  - `page_number` — increments `?page=N&per_page=M`, stops on empty/partial page
+  - `link_header` — follows `rel="next"` URLs from `Link` header (GitHub/GitLab style)
+  - `cursor` — reads next cursor from JSON response body, passes as query param
+  - Safety limit via `max_pages` (default 100), configurable param names
+- `HTTPConnector.execute_raw()` — returns raw httpx Response for custom processing
+- `_parse_link_next()` helper for extracting `rel="next"` from Link headers
+- 13 new tests covering all 3 strategies, error cases, and Link header parsing
+
+### Changed
+
+- `dagloom/connectors/http.py`: added `paginate()`, `execute_raw()`, `_parse_link_next()`, 3 private strategy methods
+
 ## [1.0.2] - 2026-04-17
 
 ### Added
@@ -405,7 +422,8 @@ Dagloom v1.0.0 marks the first stable release — a full-featured, production-re
 - Basic synchronous pipeline execution
 - Project skeleton with PyPI publishing metadata
 
-[Unreleased]: https://github.com/lucientong/dagloom/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/lucientong/dagloom/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/lucientong/dagloom/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/lucientong/dagloom/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/lucientong/dagloom/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lucientong/dagloom/compare/v0.14.0...v1.0.0
